@@ -12,7 +12,7 @@ class BangumiCookie(_PluginBase):
     plugin_desc = "为 Bangumi 搜索附加 Cookie"
     plugin_order = 99
     plugin_version = "1.0.0"
-    plugin_author = "User"
+    plugin_author = "踏马奔腾"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png"
 
     _enabled: bool = False
