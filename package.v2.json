@@ -1,0 +1,14 @@
+{
+  "BangumiCookie": {
+    "name": "BangumiCookie",
+    "description": "为 Bangumi 搜索附加 Cookie",
+    "labels": "探索,Bangumi",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png",
+    "author": "User",
+    "level": 1,
+    "history": {
+      "v1.0.0": "初始版本"
+    }
+  }
+}
