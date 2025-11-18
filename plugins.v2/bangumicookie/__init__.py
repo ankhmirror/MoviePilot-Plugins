@@ -82,36 +82,7 @@ class BangumiCookie(_PluginBase):
     def _search_medias(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         if not self._enabled:
             return None
-        if not meta:
-            return []
-        mediaid = str(getattr(meta, "mediaid", "") or "")
-        if mediaid.startswith("bangumi:"):
-            sid = mediaid.split(":", 1)[1]
-            if not sid:
-                return []
-            req = RequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
-            dresp = req.get_res(f"https://api.bgm.tv/subject/{sid}")
-            if not dresp:
-                return []
-            try:
-                dinfo = dresp.json()
-            except Exception:
-                return []
-            medias = [MediaInfo(bangumi_info=dinfo)]
-            if meta.begin_season and medias:
-                try:
-                    import cn2an
-                    season_str = cn2an.an2cn(meta.begin_season, "low")
-                    for m in medias:
-                        if m.type and m.type.value == "电视剧":
-                            m.title = f"{m.title} 第{season_str}季"
-                            m.season = meta.begin_season
-                except Exception:
-                    for m in medias:
-                        if m.type and m.type.value == "电视剧":
-                            m.season = meta.begin_season
-            return medias
-        if not meta.name:
+        if not meta or not meta.name:
             return []
         url = f"https://api.bgm.tv/search/subject/{meta.name}"
         req = RequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
@@ -141,36 +112,7 @@ class BangumiCookie(_PluginBase):
     async def _async_search_medias(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         if not self._enabled:
             return None
-        if not meta:
-            return []
-        mediaid = str(getattr(meta, "mediaid", "") or "")
-        if mediaid.startswith("bangumi:"):
-            sid = mediaid.split(":", 1)[1]
-            if not sid:
-                return []
-            req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
-            dresp = await req.get_res(f"https://api.bgm.tv/subject/{sid}")
-            if not dresp:
-                return []
-            try:
-                dinfo = dresp.json()
-            except Exception:
-                return []
-            medias = [MediaInfo(bangumi_info=dinfo)]
-            if meta.begin_season and medias:
-                try:
-                    import cn2an
-                    season_str = cn2an.an2cn(meta.begin_season, "low")
-                    for m in medias:
-                        if m.type and m.type.value == "电视剧":
-                            m.title = f"{m.title} 第{season_str}季"
-                            m.season = meta.begin_season
-                except Exception:
-                    for m in medias:
-                        if m.type and m.type.value == "电视剧":
-                            m.season = meta.begin_season
-            return medias
-        if not meta.name:
+        if not meta or not meta.name:
             return []
         url = f"https://api.bgm.tv/search/subject/{meta.name}"
         req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
