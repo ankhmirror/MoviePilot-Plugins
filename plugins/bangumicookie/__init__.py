@@ -74,6 +74,8 @@ class BangumiCookie(_PluginBase):
         return {
             "search_medias": self._search_medias,
             "async_search_medias": self._async_search_medias,
+            "scrape_metadata": self._scrape_metadata,
+            "async_scrape_metadata": self._async_scrape_metadata,
         }
 
     def stop_service(self):
@@ -109,6 +111,48 @@ class BangumiCookie(_PluginBase):
                         m.season = meta.begin_season
         return medias
 
+    def _scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
+        if not self._enabled:
+            return None
+        if not meta or not meta.name:
+            return []
+        url = f"https://api.bgm.tv/search/subject/{meta.name}"
+        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
+        resp = req.get_res(url)
+        if not resp:
+            return []
+        try:
+            data = resp.json()
+        except Exception:
+            return []
+        items = data.get("list") or []
+        details: List[MediaInfo] = []
+        for info in items:
+            sid = (info or {}).get("id")
+            if not sid:
+                continue
+            dresp = req.get_res(f"https://api.bgm.tv/subject/{sid}")
+            if not dresp:
+                continue
+            try:
+                dinfo = dresp.json()
+            except Exception:
+                continue
+            details.append(MediaInfo(bangumi_info=dinfo))
+        if meta.begin_season and details:
+            try:
+                import cn2an
+                season_str = cn2an.an2cn(meta.begin_season, "low")
+                for m in details:
+                    if m.type and m.type.value == "电视剧":
+                        m.title = f"{m.title} 第{season_str}季"
+                        m.season = meta.begin_season
+            except Exception:
+                for m in details:
+                    if m.type and m.type.value == "电视剧":
+                        m.season = meta.begin_season
+        return details
+
     async def _async_search_medias(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         if not self._enabled:
             return None
@@ -138,3 +182,45 @@ class BangumiCookie(_PluginBase):
                     if m.type and m.type.value == "电视剧":
                         m.season = meta.begin_season
         return medias
+
+    async def _async_scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
+        if not self._enabled:
+            return None
+        if not meta or not meta.name:
+            return []
+        url = f"https://api.bgm.tv/search/subject/{meta.name}"
+        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
+        resp = await req.get_res(url)
+        if not resp:
+            return []
+        try:
+            data = resp.json()
+        except Exception:
+            return []
+        items = data.get("list") or []
+        details: List[MediaInfo] = []
+        for info in items:
+            sid = (info or {}).get("id")
+            if not sid:
+                continue
+            dresp = await req.get_res(f"https://api.bgm.tv/subject/{sid}")
+            if not dresp:
+                continue
+            try:
+                dinfo = dresp.json()
+            except Exception:
+                continue
+            details.append(MediaInfo(bangumi_info=dinfo))
+        if meta.begin_season and details:
+            try:
+                import cn2an
+                season_str = cn2an.an2cn(meta.begin_season, "low")
+                for m in details:
+                    if m.type and m.type.value == "电视剧":
+                        m.title = f"{m.title} 第{season_str}季"
+                        m.season = meta.begin_season
+            except Exception:
+                for m in details:
+                    if m.type and m.type.value == "电视剧":
+                        m.season = meta.begin_season
+        return details
