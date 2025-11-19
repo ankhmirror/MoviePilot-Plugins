@@ -3,19 +3,16 @@ from typing import Any, Dict, List, Tuple, Optional
 from app.plugins import _PluginBase
 
 try:
-    from app.core.sites import SitesHelper
+    from app.helper.sites import SitesHelper  # noqa
 except Exception:
-    try:
-        from app.core.indexer import SitesHelper
-    except Exception:
-        SitesHelper = None
+    SitesHelper = None
 
 
 class SukebeiNyaa(_PluginBase):
     plugin_name = "SukebeiNyaa"
     plugin_desc = "扩展索引站点 sukebei.nyaa.si"
     plugin_order = 99
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "踏马奔腾"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/nyaa.png"
 
@@ -25,7 +22,7 @@ class SukebeiNyaa(_PluginBase):
 
     def _build_indexer(self) -> Dict[str, Any]:
         return {
-            "id": "sukebeinyaa",
+            "id": 1,
             "name": "Sukebei Nyaa",
             "domain": self._domain,
             "encoding": "UTF-8",
@@ -36,14 +33,10 @@ class SukebeiNyaa(_PluginBase):
             "search": {
                 "paths": [
                     {
-                        "path": "?f=0&c=0_0&q={keyword}",
+                        "path": "?f=0&c=1_1&q={keyword}",
                         "method": "get",
                     }
                 ]
-            },
-            "browse": {
-                "path": "?p={page}",
-                "start": 1,
             },
             "torrents": {
                 "list": {"selector": "table.torrent-list > tbody > tr"},
