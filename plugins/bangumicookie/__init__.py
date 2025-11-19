@@ -114,31 +114,42 @@ class BangumiCookie(_PluginBase):
     def _scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         if not self._enabled:
             return None
-        if not meta or not meta.name:
-            return []
-        url = f"https://api.bgm.tv/search/subject/{meta.name}"
         req = RequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
-        resp = req.get_res(url)
-        if not resp:
-            return []
-        try:
-            data = resp.json()
-        except Exception:
-            return []
-        items = data.get("list") or []
+        mediaid = getattr(meta, "mediaid", None)
         details: List[MediaInfo] = []
-        for info in items:
-            sid = (info or {}).get("id")
-            if not sid:
-                continue
-            dresp = req.get_res(f"https://api.bgm.tv/subject/{sid}")
-            if not dresp:
-                continue
+        if mediaid:
             try:
-                dinfo = dresp.json()
+                sid = str(mediaid).split(":", 1)[-1]
+                dresp = req.get_res(f"https://api.bgm.tv/subject/{sid}")
+                if dresp:
+                    dinfo = dresp.json()
+                    details.append(MediaInfo(bangumi_info=dinfo))
             except Exception:
-                continue
-            details.append(MediaInfo(bangumi_info=dinfo))
+                return []
+        else:
+            if not meta or not meta.name:
+                return []
+            url = f"https://api.bgm.tv/search/subject/{meta.name}"
+            resp = req.get_res(url)
+            if not resp:
+                return []
+            try:
+                data = resp.json()
+            except Exception:
+                return []
+            items = data.get("list") or []
+            for info in items:
+                sid = (info or {}).get("id")
+                if not sid:
+                    continue
+                dresp = req.get_res(f"https://api.bgm.tv/subject/{sid}")
+                if not dresp:
+                    continue
+                try:
+                    dinfo = dresp.json()
+                except Exception:
+                    continue
+                details.append(MediaInfo(bangumi_info=dinfo))
         if meta.begin_season and details:
             try:
                 import cn2an
@@ -186,31 +197,42 @@ class BangumiCookie(_PluginBase):
     async def _async_scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         if not self._enabled:
             return None
-        if not meta or not meta.name:
-            return []
-        url = f"https://api.bgm.tv/search/subject/{meta.name}"
         req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
-        resp = await req.get_res(url)
-        if not resp:
-            return []
-        try:
-            data = resp.json()
-        except Exception:
-            return []
-        items = data.get("list") or []
+        mediaid = getattr(meta, "mediaid", None)
         details: List[MediaInfo] = []
-        for info in items:
-            sid = (info or {}).get("id")
-            if not sid:
-                continue
-            dresp = await req.get_res(f"https://api.bgm.tv/subject/{sid}")
-            if not dresp:
-                continue
+        if mediaid:
             try:
-                dinfo = dresp.json()
+                sid = str(mediaid).split(":", 1)[-1]
+                dresp = await req.get_res(f"https://api.bgm.tv/subject/{sid}")
+                if dresp:
+                    dinfo = dresp.json()
+                    details.append(MediaInfo(bangumi_info=dinfo))
             except Exception:
-                continue
-            details.append(MediaInfo(bangumi_info=dinfo))
+                return []
+        else:
+            if not meta or not meta.name:
+                return []
+            url = f"https://api.bgm.tv/search/subject/{meta.name}"
+            resp = await req.get_res(url)
+            if not resp:
+                return []
+            try:
+                data = resp.json()
+            except Exception:
+                return []
+            items = data.get("list") or []
+            for info in items:
+                sid = (info or {}).get("id")
+                if not sid:
+                    continue
+                dresp = await req.get_res(f"https://api.bgm.tv/subject/{sid}")
+                if not dresp:
+                    continue
+                try:
+                    dinfo = dresp.json()
+                except Exception:
+                    continue
+                details.append(MediaInfo(bangumi_info=dinfo))
         if meta.begin_season and details:
             try:
                 import cn2an
