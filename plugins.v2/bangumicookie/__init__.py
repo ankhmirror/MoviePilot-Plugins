@@ -90,7 +90,11 @@ class BangumiCookie(_PluginBase):
         if not meta or not meta.name:
             return []
         url = f"https://api.bgm.tv/search/subject/{meta.name}"
-        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
+        _auth = (self._authorization or "").strip()
+        if _auth and not _auth.lower().startswith("bearer "):
+            _auth = f"Bearer {_auth}"
+        _headers = {"Authorization": _auth, "Accept": "application/json"} if _auth else {"Accept": "application/json"}
+        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, headers=_headers)
         resp = req.get_res(url)
         if not resp:
             return []
@@ -117,7 +121,11 @@ class BangumiCookie(_PluginBase):
     def _scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         if not self._enabled:
             return None
-        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
+        _auth = (self._authorization or "").strip()
+        if _auth and not _auth.lower().startswith("bearer "):
+            _auth = f"Bearer {_auth}"
+        _headers = {"Authorization": _auth, "Accept": "application/json"} if _auth else {"Accept": "application/json"}
+        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, headers=_headers)
         mediaid = getattr(meta, "mediaid", None)
         details: List[MediaInfo] = []
         if mediaid:
@@ -173,7 +181,11 @@ class BangumiCookie(_PluginBase):
         if not meta or not meta.name:
             return []
         url = f"https://api.bgm.tv/search/subject/{meta.name}"
-        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
+        _auth = (self._authorization or "").strip()
+        if _auth and not _auth.lower().startswith("bearer "):
+            _auth = f"Bearer {_auth}"
+        _headers = {"Authorization": _auth, "Accept": "application/json"} if _auth else {"Accept": "application/json"}
+        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, headers=_headers)
         resp = await req.get_res(url)
         if not resp:
             return []
@@ -200,7 +212,11 @@ class BangumiCookie(_PluginBase):
     async def _async_scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         if not self._enabled:
             return None
-        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
+        _auth = (self._authorization or "").strip()
+        if _auth and not _auth.lower().startswith("bearer "):
+            _auth = f"Bearer {_auth}"
+        _headers = {"Authorization": _auth, "Accept": "application/json"} if _auth else {"Accept": "application/json"}
+        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, headers=_headers)
         mediaid = getattr(meta, "mediaid", None)
         details: List[MediaInfo] = []
         if mediaid:
@@ -255,7 +271,11 @@ class BangumiCookie(_PluginBase):
             return None
         if not bangumiid:
             return None
-        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
+        _auth = (self._authorization or "").strip()
+        if _auth and not _auth.lower().startswith("bearer "):
+            _auth = f"Bearer {_auth}"
+        _headers = {"Authorization": _auth, "Accept": "application/json"} if _auth else {"Accept": "application/json"}
+        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, headers=_headers)
         resp = req.get_res(
             f"https://api.bgm.tv/v0/subjects/{bangumiid}",
             params={"_ts": datetime.strftime(datetime.now(), "%Y%m%d")},
@@ -272,7 +292,11 @@ class BangumiCookie(_PluginBase):
             return None
         if not bangumiid:
             return None
-        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
+        _auth = (self._authorization or "").strip()
+        if _auth and not _auth.lower().startswith("bearer "):
+            _auth = f"Bearer {_auth}"
+        _headers = {"Authorization": _auth, "Accept": "application/json"} if _auth else {"Accept": "application/json"}
+        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, headers=_headers)
         resp = await req.get_res(
             f"https://api.bgm.tv/v0/subjects/{bangumiid}",
             params={"_ts": datetime.strftime(datetime.now(), "%Y%m%d")},
