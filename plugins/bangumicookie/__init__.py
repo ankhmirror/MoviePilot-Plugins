@@ -1,5 +1,4 @@
 from typing import Any, Dict, List, Tuple, Optional
-from datetime import datetime
 
 from app.core.config import settings
 from app.plugins import _PluginBase
@@ -10,19 +9,19 @@ from app.core.context import MediaInfo
 
 class BangumiCookie(_PluginBase):
     plugin_name = "BangumiCookie"
-    plugin_desc = "为 Bangumi 搜索附加 Authorization"
+    plugin_desc = "为 Bangumi 搜索附加 Cookie"
     plugin_order = 99
-    plugin_version = "1.1.0"
-    plugin_author = "踏马奔腾"
+    plugin_version = "1.0.0"
+    plugin_author = "User"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png"
 
     _enabled: bool = False
-    _authorization: str = ""
+    _cookie: str = ""
 
     def init_plugin(self, config: dict = None):
         if config:
             self._enabled = bool(config.get("enabled", False))
-            self._authorization = str(config.get("authorization", "") or "")
+            self._cookie = str(config.get("cookie", "") or "")
 
     def get_state(self) -> bool:
         return self._enabled
@@ -55,8 +54,8 @@ class BangumiCookie(_PluginBase):
                                     {
                                         "component": "VTextField",
                                         "props": {
-                                            "model": "authorization",
-                                            "label": "Bangumi Authorization",
+                                            "model": "cookie",
+                                            "label": "Bangumi Cookie",
                                             "clearable": True,
                                         },
                                     }
@@ -66,7 +65,7 @@ class BangumiCookie(_PluginBase):
                     }
                 ],
             }
-        ], {"enabled": False, "authorization": ""}
+        ], {"enabled": False, "cookie": ""}
 
     def get_page(self) -> List[dict]:
         return []
@@ -77,8 +76,6 @@ class BangumiCookie(_PluginBase):
             "async_search_medias": self._async_search_medias,
             "scrape_metadata": self._scrape_metadata,
             "async_scrape_metadata": self._async_scrape_metadata,
-            "bangumi_info": self._bangumi_info,
-            "async_bangumi_info": self._async_bangumi_info,
         }
 
     def stop_service(self):
@@ -90,7 +87,7 @@ class BangumiCookie(_PluginBase):
         if not meta or not meta.name:
             return []
         url = f"https://api.bgm.tv/search/subject/{meta.name}"
-        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
+        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
         resp = req.get_res(url)
         if not resp:
             return []
@@ -117,42 +114,31 @@ class BangumiCookie(_PluginBase):
     def _scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         if not self._enabled:
             return None
-        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
-        mediaid = getattr(meta, "mediaid", None)
+        if not meta or not meta.name:
+            return []
+        url = f"https://api.bgm.tv/search/subject/{meta.name}"
+        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
+        resp = req.get_res(url)
+        if not resp:
+            return []
+        try:
+            data = resp.json()
+        except Exception:
+            return []
+        items = data.get("list") or []
         details: List[MediaInfo] = []
-        if mediaid:
+        for info in items:
+            sid = (info or {}).get("id")
+            if not sid:
+                continue
+            dresp = req.get_res(f"https://api.bgm.tv/subject/{sid}")
+            if not dresp:
+                continue
             try:
-                sid = str(mediaid).split(":", 1)[-1]
-                dresp = req.get_res(f"https://api.bgm.tv/subject/{sid}")
-                if dresp:
-                    dinfo = dresp.json()
-                    details.append(MediaInfo(bangumi_info=dinfo))
+                dinfo = dresp.json()
             except Exception:
-                return []
-        else:
-            if not meta or not meta.name:
-                return []
-            url = f"https://api.bgm.tv/search/subject/{meta.name}"
-            resp = req.get_res(url)
-            if not resp:
-                return []
-            try:
-                data = resp.json()
-            except Exception:
-                return []
-            items = data.get("list") or []
-            for info in items:
-                sid = (info or {}).get("id")
-                if not sid:
-                    continue
-                dresp = req.get_res(f"https://api.bgm.tv/subject/{sid}")
-                if not dresp:
-                    continue
-                try:
-                    dinfo = dresp.json()
-                except Exception:
-                    continue
-                details.append(MediaInfo(bangumi_info=dinfo))
+                continue
+            details.append(MediaInfo(bangumi_info=dinfo))
         if meta.begin_season and details:
             try:
                 import cn2an
@@ -173,7 +159,7 @@ class BangumiCookie(_PluginBase):
         if not meta or not meta.name:
             return []
         url = f"https://api.bgm.tv/search/subject/{meta.name}"
-        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
+        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
         resp = await req.get_res(url)
         if not resp:
             return []
@@ -200,42 +186,31 @@ class BangumiCookie(_PluginBase):
     async def _async_scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         if not self._enabled:
             return None
-        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
-        mediaid = getattr(meta, "mediaid", None)
+        if not meta or not meta.name:
+            return []
+        url = f"https://api.bgm.tv/search/subject/{meta.name}"
+        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
+        resp = await req.get_res(url)
+        if not resp:
+            return []
+        try:
+            data = resp.json()
+        except Exception:
+            return []
+        items = data.get("list") or []
         details: List[MediaInfo] = []
-        if mediaid:
+        for info in items:
+            sid = (info or {}).get("id")
+            if not sid:
+                continue
+            dresp = await req.get_res(f"https://api.bgm.tv/subject/{sid}")
+            if not dresp:
+                continue
             try:
-                sid = str(mediaid).split(":", 1)[-1]
-                dresp = await req.get_res(f"https://api.bgm.tv/subject/{sid}")
-                if dresp:
-                    dinfo = dresp.json()
-                    details.append(MediaInfo(bangumi_info=dinfo))
+                dinfo = dresp.json()
             except Exception:
-                return []
-        else:
-            if not meta or not meta.name:
-                return []
-            url = f"https://api.bgm.tv/search/subject/{meta.name}"
-            resp = await req.get_res(url)
-            if not resp:
-                return []
-            try:
-                data = resp.json()
-            except Exception:
-                return []
-            items = data.get("list") or []
-            for info in items:
-                sid = (info or {}).get("id")
-                if not sid:
-                    continue
-                dresp = await req.get_res(f"https://api.bgm.tv/subject/{sid}")
-                if not dresp:
-                    continue
-                try:
-                    dinfo = dresp.json()
-                except Exception:
-                    continue
-                details.append(MediaInfo(bangumi_info=dinfo))
+                continue
+            details.append(MediaInfo(bangumi_info=dinfo))
         if meta.begin_season and details:
             try:
                 import cn2an
@@ -249,37 +224,3 @@ class BangumiCookie(_PluginBase):
                     if m.type and m.type.value == "电视剧":
                         m.season = meta.begin_season
         return details
-
-    def _bangumi_info(self, bangumiid: int) -> Optional[dict]:
-        if not self._enabled:
-            return None
-        if not bangumiid:
-            return None
-        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
-        resp = req.get_res(
-            f"https://api.bgm.tv/v0/subjects/{bangumiid}",
-            params={"_ts": datetime.strftime(datetime.now(), "%Y%m%d")},
-        )
-        if not resp:
-            return None
-        try:
-            return resp.json()
-        except Exception:
-            return None
-
-    async def _async_bangumi_info(self, bangumiid: int) -> Optional[dict]:
-        if not self._enabled:
-            return None
-        if not bangumiid:
-            return None
-        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, headers={"Authorization": self._authorization} if self._authorization else None)
-        resp = await req.get_res(
-            f"https://api.bgm.tv/v0/subjects/{bangumiid}",
-            params={"_ts": datetime.strftime(datetime.now(), "%Y%m%d")},
-        )
-        if not resp:
-            return None
-        try:
-            return resp.json()
-        except Exception:
-            return None
