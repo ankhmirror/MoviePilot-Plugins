@@ -14,7 +14,7 @@ class JavBus(_PluginBase):
     plugin_desc = "JavBus 媒体数据源"
     plugin_order = 90
     plugin_version = "1.0.0"
-    plugin_author = "黄垚淮"
+    plugin_author = "踏马奔腾"
     plugin_icon = "https://www.javbus.com/favicon.ico"
 
     _enabled: bool = False
