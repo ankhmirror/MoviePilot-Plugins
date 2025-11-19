@@ -10,8 +10,8 @@ from app.core.context import MediaInfo
 from app.log import logger
 
 
-class BangumiCookie(_PluginBase):
-    plugin_name = "BangumiCookie"
+class BangumiAuthorization(_PluginBase):
+    plugin_name = "BangumiAuthorization"
     plugin_desc = "为 Bangumi 搜索附加 Authorization"
     plugin_order = 99
     plugin_version = "1.1.0"
@@ -367,13 +367,3 @@ class BangumiCookie(_PluginBase):
             return {"ok": True, "enabled": self._enabled}
         except Exception:
             return {"ok": False}
-        resp = await req.get_res(
-            f"https://api.bgm.tv/v0/subjects/{bangumiid}"
-        )
-        data = None
-        if resp and resp.status_code == 200:
-            try:
-                data = resp.json()
-            except Exception:
-                data = None
-        return MediaInfo(bangumi_info=data) if isinstance(data, dict) else None
