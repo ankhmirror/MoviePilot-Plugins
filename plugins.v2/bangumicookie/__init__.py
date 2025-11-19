@@ -16,6 +16,7 @@ class BangumiCookie(_PluginBase):
     说明：
       - search/subject 与 v0/subjects 详情在此插件内附加令牌
       - 插件启用后，链路优先命中插件方法，再回退到系统模块
+      - https://next.bgm.tv/demo/access-token/create 申请令牌
     """
     plugin_name = "BangumiCookie"
     plugin_desc = "为 Bangumi 搜索附加 Authorization"
