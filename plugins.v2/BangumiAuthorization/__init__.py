@@ -99,11 +99,43 @@ class BangumiCookie(_PluginBase):
         ], {"enabled": False, "authorization": ""}
 
     def get_page(self) -> List[dict]:
-        """
-        功能：插件自定义页面（暂无）
-        返回：空列表
-        """
-        return []
+        return [
+            {
+                "component": "VRow",
+                "content": [
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "需要创建 Bangumi Authorization 令牌"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "component": "VCol",
+                        "props": {"cols": 12},
+                        "content": [
+                            {
+                                "component": "VBtn",
+                                "props": {
+                                    "href": "https://next.bgm.tv/demo/access-token/create",
+                                    "target": "_blank",
+                                    "rel": "noopener",
+                                    "color": "primary"
+                                },
+                                "text": "前往创建令牌"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
 
     def get_module(self) -> Dict[str, Any]:
         """
