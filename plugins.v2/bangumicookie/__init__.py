@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Tuple, Optional
+from datetime import datetime
 
 from app.core.config import settings
 from app.plugins import _PluginBase
@@ -11,7 +12,7 @@ class BangumiCookie(_PluginBase):
     plugin_name = "BangumiCookie"
     plugin_desc = "为 Bangumi 搜索附加 Cookie"
     plugin_order = 99
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "踏马奔腾"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png"
 
@@ -76,6 +77,8 @@ class BangumiCookie(_PluginBase):
             "async_search_medias": self._async_search_medias,
             "scrape_metadata": self._scrape_metadata,
             "async_scrape_metadata": self._async_scrape_metadata,
+            "bangumi_info": self._bangumi_info,
+            "async_bangumi_info": self._async_bangumi_info,
         }
 
     def stop_service(self):
@@ -246,3 +249,37 @@ class BangumiCookie(_PluginBase):
                     if m.type and m.type.value == "电视剧":
                         m.season = meta.begin_season
         return details
+
+    def _bangumi_info(self, bangumiid: int) -> Optional[dict]:
+        if not self._enabled:
+            return None
+        if not bangumiid:
+            return None
+        req = RequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
+        resp = req.get_res(
+            f"https://api.bgm.tv/v0/subjects/{bangumiid}",
+            params={"_ts": datetime.strftime(datetime.now(), "%Y%m%d")},
+        )
+        if not resp:
+            return None
+        try:
+            return resp.json()
+        except Exception:
+            return None
+
+    async def _async_bangumi_info(self, bangumiid: int) -> Optional[dict]:
+        if not self._enabled:
+            return None
+        if not bangumiid:
+            return None
+        req = AsyncRequestUtils(ua=settings.NORMAL_USER_AGENT, cookies=self._cookie)
+        resp = await req.get_res(
+            f"https://api.bgm.tv/v0/subjects/{bangumiid}",
+            params={"_ts": datetime.strftime(datetime.now(), "%Y%m%d")},
+        )
+        if not resp:
+            return None
+        try:
+            return resp.json()
+        except Exception:
+            return None
