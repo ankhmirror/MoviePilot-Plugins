@@ -12,4 +12,17 @@
       "v1.1.0": "改为使用 Authorization 头并自动补全 Bearer 前缀"
     }
   }
+  ,
+  "BangumiHentai": {
+    "name": "BangumiHentai",
+    "description": "在探索的 Bangumi 类别增加 里番",
+    "labels": "探索,Bangumi",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png",
+    "author": "踏马奔腾",
+    "level": 1,
+    "history": {
+      "v1.0.0": "初始版本"
+    }
+  }
 }
