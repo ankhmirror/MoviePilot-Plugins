@@ -1,13 +1,12 @@
 from typing import Any, Dict, List, Tuple, Optional
-from datetime import datetime
-import json
+ 
 
 from app.core.config import settings
 from app.plugins import _PluginBase
 from app.utils.http import RequestUtils, AsyncRequestUtils
 from app.core.meta import MetaBase
 from app.core.context import MediaInfo
-from app.log import logger
+ 
 
 
 class BangumiAuthorization(_PluginBase):
@@ -57,7 +56,30 @@ class BangumiAuthorization(_PluginBase):
         """
         if config:
             self._enabled = bool(config.get("enabled", False))
-            self._authorization = str(config.get("authorization", "") or "")
+            auth = str(config.get("authorization", "") or "").strip()
+            if auth:
+                self._authorization = auth if auth.lower().startswith("bearer ") else f"Bearer {auth}"
+            else:
+                self._authorization = ""
+
+    def _season_text(self, season: Optional[int]) -> Optional[str]:
+        if not season:
+            return None
+        try:
+            import cn2an
+            return cn2an.an2cn(season, "low")
+        except Exception:
+            return None
+
+    def _apply_season(self, medias: List[MediaInfo], begin_season: Optional[int]):
+        if not begin_season or not medias:
+            return
+        season_str = self._season_text(begin_season)
+        for m in medias:
+            if m.type and m.type.value == "电视剧":
+                if season_str:
+                    m.title = f"{m.title} 第{season_str}季"
+                m.season = begin_season
 
     def get_state(self) -> bool:
         """
@@ -246,21 +268,7 @@ class BangumiAuthorization(_PluginBase):
         items = data.get("list") or []
         medias = [MediaInfo(bangumi_info=info) for info in items]
         
-        # 如果提供了季度信息，为电视剧类型的媒体设置季度标题和编号
-        if meta.begin_season and medias:
-            try:
-                # 尝试使用cn2an库将阿拉伯数字转换为中文数字
-                import cn2an
-                season_str = cn2an.an2cn(meta.begin_season, "low")
-                for m in medias:
-                    if m.type and m.type.value == "电视剧":
-                        m.title = f"{m.title} 第{season_str}季"
-                        m.season = meta.begin_season
-            except Exception:
-                # 如果cn2an库不可用，仅设置季度编号
-                for m in medias:
-                    if m.type and m.type.value == "电视剧":
-                        m.season = meta.begin_season
+        self._apply_season(medias, getattr(meta, "begin_season", None))
         
         return medias
 
@@ -336,19 +344,7 @@ class BangumiAuthorization(_PluginBase):
                 except Exception:
                     continue
         
-        # 如果提供了季度信息，为电视剧类型的媒体设置季度标题和编号
-        if meta.begin_season and details:
-            try:
-                import cn2an
-                season_str = cn2an.an2cn(meta.begin_season, "low")
-                for m in details:
-                    if m.type and m.type.value == "电视剧":
-                        m.title = f"{m.title} 第{season_str}季"
-                        m.season = meta.begin_season
-            except Exception:
-                for m in details:
-                    if m.type and m.type.value == "电视剧":
-                        m.season = meta.begin_season
+        self._apply_season(details, getattr(meta, "begin_season", None))
         
         return details
 
@@ -389,19 +385,7 @@ class BangumiAuthorization(_PluginBase):
         items = data.get("list") or []
         medias = [MediaInfo(bangumi_info=info) for info in items]
         
-        # 如果提供了季度信息，为电视剧类型的媒体设置季度标题和编号
-        if meta.begin_season and medias:
-            try:
-                import cn2an
-                season_str = cn2an.an2cn(meta.begin_season, "low")
-                for m in medias:
-                    if m.type and m.type.value == "电视剧":
-                        m.title = f"{m.title} 第{season_str}季"
-                        m.season = meta.begin_season
-            except Exception:
-                for m in medias:
-                    if m.type and m.type.value == "电视剧":
-                        m.season = meta.begin_season
+        self._apply_season(medias, getattr(meta, "begin_season", None))
         
         return medias
 
@@ -475,19 +459,7 @@ class BangumiAuthorization(_PluginBase):
                 except Exception:
                     continue
         
-        # 如果提供了季度信息，为电视剧类型的媒体设置季度标题和编号
-        if meta.begin_season and details:
-            try:
-                import cn2an
-                season_str = cn2an.an2cn(meta.begin_season, "low")
-                for m in details:
-                    if m.type and m.type.value == "电视剧":
-                        m.title = f"{m.title} 第{season_str}季"
-                        m.season = meta.begin_season
-            except Exception:
-                for m in details:
-                    if m.type and m.type.value == "电视剧":
-                        m.season = meta.begin_season
+        self._apply_season(details, getattr(meta, "begin_season", None))
         
         return details
 
