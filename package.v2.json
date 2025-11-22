@@ -11,17 +11,5 @@
       "v1.0.0": "初始版本",
       "v1.1.0": "改为使用 Authorization 头并自动补全 Bearer 前缀"
     }
-  },
-  "SukebeiNyaa": {
-    "name": "SukebeiNyaa",
-    "description": "扩展索引站点 sukebei.nyaa.si",
-    "labels": "索引器,站点",
-    "version": "1.0.0",
-    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/nyaa.png",
-    "author": "踏马奔腾",
-    "level": 1,
-    "history": {
-      "v1.0.0": "初始版本"
-    }
   }
 }
