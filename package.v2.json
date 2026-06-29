@@ -11,5 +11,17 @@
       "v1.0.0": "初始版本",
       "v1.1.0": "改为使用 Authorization 头并自动补全 Bearer 前缀"
     }
+  },
+  "HanimeDiscover": {
+    "name": "Hanime探索",
+    "description": "让探索支持 Hanime 的数据浏览",
+    "labels": "探索,Hanime",
+    "version": "1.0.0",
+    "icon": "https://hanime1.me/favicon.ico",
+    "author": "TRAE",
+    "level": 1,
+    "history": {
+      "v1.0.0": "发布"
+    }
   }
 }
