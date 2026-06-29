@@ -26,17 +26,32 @@ HEADERS = {
     ),
     "Referer": f"{BASE_URL}/",
 }
-VIDEO_LINK_PATTERN = re.compile(
-    r'<a[^>]*href="\s*`?(?P<href>https?://[^"]*/watch\?v=[^"`\s]+|/watch\?v=[^"`\s]+)`?\s*"'
+HOME_CARD_PATTERN = re.compile(
+    r'<div(?=[^>]*class="[^"]*\bhome-rows-videos-div\b[^"]*")[^>]*>.*?'
+    r'<a(?=[^>]*href="\s*`?(?P<href>https?://[^"]*/watch\?v=[^"`\s]+|/watch\?v=[^"`\s]+)`?\s*")'
     r"[^>]*>(?P<body>.*?)</a>",
     re.IGNORECASE | re.DOTALL,
 )
-TITLE_PATTERN = re.compile(
+HOME_TITLE_PATTERN = re.compile(
     r'<div[^>]*class="[^"]*\bhome-rows-videos-title\b[^"]*"[^>]*>(?P<title>.*?)</div>',
     re.IGNORECASE | re.DOTALL,
 )
-IMAGE_PATTERN = re.compile(
+HOME_IMAGE_PATTERN = re.compile(
     r'<img[^>]*src="\s*`?(?P<src>[^"`]*(?:cover|thumbnail)[^"`]*)`?\s*"[^>]*>',
+    re.IGNORECASE | re.DOTALL,
+)
+HORIZONTAL_CARD_PATTERN = re.compile(
+    r'<a(?=[^>]*class="[^"]*\bvideo-link\b[^"]*")'
+    r'(?=[^>]*href="\s*`?(?P<href>https?://[^"]*/watch\?v=[^"`\s]+|/watch\?v=[^"`\s]+)`?\s*")'
+    r"[^>]*>(?P<body>.*?)</a>",
+    re.IGNORECASE | re.DOTALL,
+)
+HORIZONTAL_TITLE_PATTERN = re.compile(
+    r'<div[^>]*class="[^"]*\btitle\b[^"]*"[^>]*>(?P<title>.*?)</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+HORIZONTAL_IMAGE_PATTERN = re.compile(
+    r'<img[^>]*class="[^"]*\bmain-thumb\b[^"]*"[^>]*src="\s*`?(?P<src>[^"`]+)`?\s*"[^>]*>',
     re.IGNORECASE | re.DOTALL,
 )
 TAG_PATTERN = re.compile(r"<[^>]+>")
@@ -198,6 +213,135 @@ class HanimeDiscover(_PluginBase):
         """
         return unescape(value).strip().strip("`").strip()
 
+    def _append_media_info(
+        self,
+        href: str,
+        title_text: str,
+        image_src: str,
+        year: Optional[str],
+        seen_ids: Set[str],
+        results: List[schemas.MediaInfo],
+    ) -> None:
+        """
+        追加一条媒体信息
+
+        :param href (str): 详情页链接
+        :param title_text (str): 标题文本
+        :param image_src (str): 图片链接
+        :param year (str): 年份
+        :param seen_ids (Set): 已解析媒体 ID 集合
+        :param results (List): 媒体信息列表
+        """
+        detail_url = urljoin(BASE_URL, self._clean_attr_value(href))
+        media_id = self._extract_media_id(detail_url)
+        if media_id in seen_ids:
+            return
+
+        title = self._strip_html(title_text)
+        poster_path = urljoin(BASE_URL, self._clean_attr_value(image_src))
+        if not title or not poster_path:
+            return
+
+        seen_ids.add(media_id)
+        media_info = schemas.MediaInfo(
+            type="电视剧",
+            title=title,
+            mediaid_prefix="hanime",
+            media_id=media_id,
+            poster_path=poster_path,
+        )
+        if year:
+            media_info.year = year
+            media_info.title_year = f"{title} ({year})"
+        results.append(media_info)
+
+    def _parse_with_patterns(
+        self,
+        html: str,
+        link_pattern: re.Pattern,
+        title_pattern: re.Pattern,
+        image_pattern: re.Pattern,
+        year: Optional[str],
+        seen_ids: Set[str],
+        results: List[schemas.MediaInfo],
+    ) -> None:
+        """
+        按指定规则解析媒体卡片
+
+        :param html (str): 搜索页 HTML
+        :param link_pattern (Pattern): 卡片匹配规则
+        :param title_pattern (Pattern): 标题匹配规则
+        :param image_pattern (Pattern): 图片匹配规则
+        :param year (str): 年份
+        :param seen_ids (Set): 已解析媒体 ID 集合
+        :param results (List): 媒体信息列表
+        """
+        for match in link_pattern.finditer(html):
+            body = match.group("body")
+            title_match = title_pattern.search(body)
+            image_match = image_pattern.search(body)
+            if not title_match or not image_match:
+                continue
+
+            self._append_media_info(
+                href=match.group("href"),
+                title_text=title_match.group("title"),
+                image_src=image_match.group("src"),
+                year=year,
+                seen_ids=seen_ids,
+                results=results,
+            )
+
+    def _parse_home_cards(
+        self,
+        html: str,
+        year: Optional[str],
+        seen_ids: Set[str],
+        results: List[schemas.MediaInfo],
+    ) -> None:
+        """
+        解析首页样式卡片
+
+        :param html (str): 搜索页 HTML
+        :param year (str): 年份
+        :param seen_ids (Set): 已解析媒体 ID 集合
+        :param results (List): 媒体信息列表
+        """
+        self._parse_with_patterns(
+            html=html,
+            link_pattern=HOME_CARD_PATTERN,
+            title_pattern=HOME_TITLE_PATTERN,
+            image_pattern=HOME_IMAGE_PATTERN,
+            year=year,
+            seen_ids=seen_ids,
+            results=results,
+        )
+
+    def _parse_horizontal_cards(
+        self,
+        html: str,
+        year: Optional[str],
+        seen_ids: Set[str],
+        results: List[schemas.MediaInfo],
+    ) -> None:
+        """
+        解析横向卡片
+
+        :param html (str): 搜索页 HTML
+        :param year (str): 年份
+        :param seen_ids (Set): 已解析媒体 ID 集合
+        :param results (List): 媒体信息列表
+        """
+        self._parse_with_patterns(
+            html=html,
+            link_pattern=HORIZONTAL_CARD_PATTERN,
+            title_pattern=HORIZONTAL_TITLE_PATTERN,
+            image_pattern=HORIZONTAL_IMAGE_PATTERN,
+            year=year,
+            seen_ids=seen_ids,
+            results=results,
+        )
+
     @cached(region="hanime_discover", ttl=1800, skip_none=True)
     def __request(
         self,
@@ -249,38 +393,18 @@ class HanimeDiscover(_PluginBase):
         results: List[schemas.MediaInfo] = []
         seen_ids: Set[str] = set()
         year = self._extract_year(date)
-
-        for match in VIDEO_LINK_PATTERN.finditer(html):
-            body = match.group("body")
-            title_match = TITLE_PATTERN.search(body)
-            image_match = IMAGE_PATTERN.search(body)
-
-            if not title_match or not image_match:
-                continue
-
-            detail_url = urljoin(BASE_URL, self._clean_attr_value(match.group("href")))
-            media_id = self._extract_media_id(detail_url)
-            if media_id in seen_ids:
-                continue
-
-            title = self._strip_html(title_match.group("title"))
-            poster_path = urljoin(BASE_URL, self._clean_attr_value(image_match.group("src")))
-            if not title or not poster_path:
-                continue
-
-            seen_ids.add(media_id)
-            media_info = schemas.MediaInfo(
-                type="电视剧",
-                title=title,
-                mediaid_prefix="hanime",
-                media_id=media_id,
-                poster_path=poster_path,
-            )
-            if year:
-                media_info.year = year
-                media_info.title_year = f"{title} ({year})"
-            results.append(media_info)
-
+        self._parse_home_cards(
+            html=html,
+            year=year,
+            seen_ids=seen_ids,
+            results=results,
+        )
+        self._parse_horizontal_cards(
+            html=html,
+            year=year,
+            seen_ids=seen_ids,
+            results=results,
+        )
         return results
 
     def hanime_discover(
