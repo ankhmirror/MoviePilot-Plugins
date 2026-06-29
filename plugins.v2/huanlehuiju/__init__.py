@@ -4,23 +4,26 @@ from urllib.parse import quote
 
 from app.core.cache import cached
 from app.core.config import settings
+from app.core.context import MediaInfo
+from app.core.meta import MetaBase
 from app.log import logger
 from app.plugins import _PluginBase
-from app.utils.http import RequestUtils
+from app.utils.http import AsyncRequestUtils, RequestUtils
 
 
 class HuanLeHuiju(_PluginBase):
     """
     欢乐汇聚插件
 
-    第一版聚焦 Bangumi 数据源，提供 metadata 预览、融合展示与手动刷新能力
+    第一版聚焦 Bangumi 数据源，提供全局识别、全局搜索、
+    metadata 预览、融合展示与手动刷新能力
     后续可在相同数据结构下继续接入 TMDB、豆瓣等来源
     """
 
     plugin_name = "欢乐汇聚"
-    plugin_desc = "MoviePilot 详情页 metadata 融合预览插件，第一版接入 Bangumi"
+    plugin_desc = "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi"
     plugin_order = 99
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "踏马奔腾"
     author_url = "https://trae.ai"
     plugin_icon = (
@@ -69,6 +72,23 @@ class HuanLeHuiju(_PluginBase):
         :return bool: 插件是否启用
         """
         return self._enabled
+
+    def get_module(self) -> Dict[str, Any]:
+        """
+        获取全局模块声明
+
+        :return Dict: 模块声明
+        """
+        return {
+            "search_medias": self._search_medias,
+            "async_search_medias": self._async_search_medias,
+            "scrape_metadata": self._scrape_metadata,
+            "async_scrape_metadata": self._async_scrape_metadata,
+            "bangumi_info": self._bangumi_info,
+            "async_bangumi_info": self._async_bangumi_info,
+            "recognize_media": self._recognize_media,
+            "async_recognize_media": self._async_recognize_media,
+        }
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -221,7 +241,7 @@ class HuanLeHuiju(_PluginBase):
                         "props": {
                             "type": "info",
                             "variant": "tonal",
-                            "text": "第一版只接入 Bangumi，用于验证 metadata 融合结构与详情展示，后续可扩展 TMDB、豆瓣等来源",
+                            "text": "当前版本已接入 Bangumi 全局识别与搜索能力，并保留 metadata 预览页，后续可扩展 TMDB、豆瓣等来源",
                         },
                     },
                 ],
@@ -446,6 +466,47 @@ class HuanLeHuiju(_PluginBase):
         return headers
 
     @staticmethod
+    def _season_text(season: Optional[int]) -> Optional[str]:
+        """
+        获取季文本
+
+        :param season (int): 季号
+
+        :return str: 季文本
+        """
+        if not season:
+            return None
+        try:
+            season_int = int(season)
+        except Exception:
+            return None
+        if season_int <= 0:
+            return None
+        return f"第{season_int}季"
+
+    def _apply_season(
+        self, medias: Optional[List[MediaInfo]], begin_season: Optional[int]
+    ) -> None:
+        """
+        为结果补充季信息
+
+        :param medias (List): 媒体列表
+        :param begin_season (int): 开始季号
+        """
+        if not medias or not begin_season:
+            return
+        season_text = self._season_text(begin_season)
+        for media in medias:
+            try:
+                media.season = begin_season
+                media_type = getattr(getattr(media, "type", None), "value", None)
+                if media_type == "电视剧" and season_text and getattr(media, "title", None):
+                    if season_text not in media.title:
+                        media.title = f"{media.title} {season_text}"
+            except Exception:
+                continue
+
+    @staticmethod
     def _normalize_text(text: Optional[str]) -> str:
         """
         规范化文本
@@ -468,6 +529,28 @@ class HuanLeHuiju(_PluginBase):
         :return dict: JSON 数据
         """
         response = RequestUtils(
+            ua=settings.NORMAL_USER_AGENT,
+            headers=self._headers(),
+        ).get_res(url)
+        if response is None or not response.ok:
+            return None
+        try:
+            payload = response.json()
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return payload
+
+    async def _async_request_json(self, url: str) -> Optional[dict]:
+        """
+        异步请求 JSON 数据
+
+        :param url (str): 请求地址
+
+        :return dict: JSON 数据
+        """
+        response = await AsyncRequestUtils(
             ua=settings.NORMAL_USER_AGENT,
             headers=self._headers(),
         ).get_res(url)
@@ -518,6 +601,23 @@ class HuanLeHuiju(_PluginBase):
             return []
         return [item for item in items if isinstance(item, dict)]
 
+    async def _async_search_subjects(self, title: str) -> List[dict]:
+        """
+        异步搜索 Bangumi 条目
+
+        :param title (str): 标题
+
+        :return List: 搜索结果
+        """
+        encoded_title = quote(title)
+        data = await self._async_request_json(
+            f"https://api.bgm.tv/search/subject/{encoded_title}"
+        )
+        items = (data or {}).get("list") or []
+        if not isinstance(items, list):
+            return []
+        return [item for item in items if isinstance(item, dict)]
+
     def _fetch_subject_detail(self, bangumi_id: str) -> Optional[dict]:
         """
         获取 Bangumi 条目详情
@@ -527,6 +627,18 @@ class HuanLeHuiju(_PluginBase):
         :return dict: 条目详情
         """
         return self._request_json(f"https://api.bgm.tv/v0/subjects/{bangumi_id}")
+
+    async def _async_fetch_subject_detail(self, bangumi_id: str) -> Optional[dict]:
+        """
+        异步获取 Bangumi 条目详情
+
+        :param bangumi_id (str): Bangumi ID
+
+        :return dict: 条目详情
+        """
+        return await self._async_request_json(
+            f"https://api.bgm.tv/v0/subjects/{bangumi_id}"
+        )
 
     def _pick_best_subject(self, title: str, items: List[dict]) -> Optional[dict]:
         """
@@ -716,6 +828,56 @@ class HuanLeHuiju(_PluginBase):
             return None, f"无法获取 Bangumi 条目详情 {subject_id}"
         return subject, None
 
+    async def _async_resolve_subject(
+        self,
+        title: Optional[str] = None,
+        bangumi_id: Optional[str] = None,
+    ) -> Tuple[Optional[dict], Optional[str]]:
+        """
+        异步解析 Bangumi 条目
+
+        :param title (str): 查询标题
+        :param bangumi_id (str): Bangumi ID
+
+        :return Tuple: 条目详情与错误信息
+        """
+        clean_bangumi_id = str(bangumi_id or "").strip()
+        clean_title = str(title or "").strip()
+        if clean_bangumi_id:
+            subject = (
+                self._cached_subject(clean_bangumi_id)
+                if self._use_cache
+                else await self._async_fetch_subject_detail(clean_bangumi_id)
+            )
+            if not subject:
+                return None, f"未找到 Bangumi 条目 {clean_bangumi_id}"
+            return subject, None
+
+        if not clean_title:
+            return None, "请先配置预览标题或 Bangumi ID"
+
+        items = (
+            self._cached_search(clean_title)
+            if self._use_cache
+            else await self._async_search_subjects(clean_title)
+        )
+        subject_brief = self._pick_best_subject(clean_title, items)
+        if not subject_brief:
+            return None, f"Bangumi 未搜索到 {clean_title}"
+
+        subject_id = subject_brief.get("id")
+        if not subject_id:
+            return None, "命中条目缺少 Bangumi ID"
+
+        subject = (
+            self._cached_subject(str(subject_id))
+            if self._use_cache
+            else await self._async_fetch_subject_detail(str(subject_id))
+        )
+        if not subject:
+            return None, f"无法获取 Bangumi 条目详情 {subject_id}"
+        return subject, None
+
     def _build_preview_payload(
         self,
         title: Optional[str] = None,
@@ -794,3 +956,199 @@ class HuanLeHuiju(_PluginBase):
             self.save_data("last_preview", payload)
             self.del_data("last_error")
         return {"ok": True, "message": "查询成功", "data": payload}
+
+    def _search_medias(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
+        """
+        全局搜索媒体
+
+        :param meta (MetaBase): 媒体元数据
+
+        :return List: 媒体结果
+        """
+        if not self._enabled:
+            return None
+        if not meta or not getattr(meta, "name", None):
+            return []
+
+        try:
+            items = self._search_subjects(meta.name)
+            medias = [MediaInfo(bangumi_info=item) for item in items]
+            self._apply_season(medias, getattr(meta, "begin_season", None))
+            return medias
+        except Exception as err:
+            logger.error("欢乐汇聚搜索 Bangumi 失败: %s", err, exc_info=True)
+            return []
+
+    async def _async_search_medias(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
+        """
+        异步全局搜索媒体
+
+        :param meta (MetaBase): 媒体元数据
+
+        :return List: 媒体结果
+        """
+        if not self._enabled:
+            return None
+        if not meta or not getattr(meta, "name", None):
+            return []
+
+        try:
+            items = await self._async_search_subjects(meta.name)
+            medias = [MediaInfo(bangumi_info=item) for item in items]
+            self._apply_season(medias, getattr(meta, "begin_season", None))
+            return medias
+        except Exception as err:
+            logger.error("欢乐汇聚异步搜索 Bangumi 失败: %s", err, exc_info=True)
+            return []
+
+    def _scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
+        """
+        全局刮削元数据
+
+        :param meta (MetaBase): 媒体元数据
+
+        :return List: 刮削结果
+        """
+        if not self._enabled:
+            return None
+
+        details: List[MediaInfo] = []
+        mediaid = getattr(meta, "mediaid", None) if meta else None
+        begin_season = getattr(meta, "begin_season", None) if meta else None
+
+        try:
+            if mediaid:
+                bangumi_id = str(mediaid).split(":", 1)[-1]
+                detail = (
+                    self._cached_subject(bangumi_id)
+                    if self._use_cache
+                    else self._fetch_subject_detail(bangumi_id)
+                )
+                if detail:
+                    details.append(MediaInfo(bangumi_info=detail))
+            else:
+                medias = self._search_medias(meta) or []
+                for media in medias:
+                    bangumi_id = getattr(media, "bangumi_id", None)
+                    if not bangumi_id:
+                        continue
+                    detail = (
+                        self._cached_subject(str(bangumi_id))
+                        if self._use_cache
+                        else self._fetch_subject_detail(str(bangumi_id))
+                    )
+                    if detail:
+                        details.append(MediaInfo(bangumi_info=detail))
+            self._apply_season(details, begin_season)
+            return details
+        except Exception as err:
+            logger.error("欢乐汇聚刮削 Bangumi 元数据失败: %s", err, exc_info=True)
+            return []
+
+    async def _async_scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
+        """
+        异步全局刮削元数据
+
+        :param meta (MetaBase): 媒体元数据
+
+        :return List: 刮削结果
+        """
+        if not self._enabled:
+            return None
+
+        details: List[MediaInfo] = []
+        mediaid = getattr(meta, "mediaid", None) if meta else None
+        begin_season = getattr(meta, "begin_season", None) if meta else None
+
+        try:
+            if mediaid:
+                bangumi_id = str(mediaid).split(":", 1)[-1]
+                detail = (
+                    self._cached_subject(bangumi_id)
+                    if self._use_cache
+                    else await self._async_fetch_subject_detail(bangumi_id)
+                )
+                if detail:
+                    details.append(MediaInfo(bangumi_info=detail))
+            else:
+                medias = await self._async_search_medias(meta) or []
+                for media in medias:
+                    bangumi_id = getattr(media, "bangumi_id", None)
+                    if not bangumi_id:
+                        continue
+                    detail = (
+                        self._cached_subject(str(bangumi_id))
+                        if self._use_cache
+                        else await self._async_fetch_subject_detail(str(bangumi_id))
+                    )
+                    if detail:
+                        details.append(MediaInfo(bangumi_info=detail))
+            self._apply_season(details, begin_season)
+            return details
+        except Exception as err:
+            logger.error("欢乐汇聚异步刮削 Bangumi 元数据失败: %s", err, exc_info=True)
+            return []
+
+    def _bangumi_info(self, bangumiid: int) -> Optional[MediaInfo]:
+        """
+        根据 Bangumi ID 获取媒体详情
+
+        :param bangumiid (int): Bangumi ID
+
+        :return MediaInfo: 媒体信息
+        """
+        if not self._enabled or not bangumiid:
+            return None
+        try:
+            detail = (
+                self._cached_subject(str(bangumiid))
+                if self._use_cache
+                else self._fetch_subject_detail(str(bangumiid))
+            )
+            return MediaInfo(bangumi_info=detail) if isinstance(detail, dict) else None
+        except Exception as err:
+            logger.error("欢乐汇聚获取 Bangumi 详情失败: %s", err, exc_info=True)
+            return None
+
+    async def _async_bangumi_info(self, bangumiid: int) -> Optional[MediaInfo]:
+        """
+        异步根据 Bangumi ID 获取媒体详情
+
+        :param bangumiid (int): Bangumi ID
+
+        :return MediaInfo: 媒体信息
+        """
+        if not self._enabled or not bangumiid:
+            return None
+        try:
+            detail = (
+                self._cached_subject(str(bangumiid))
+                if self._use_cache
+                else await self._async_fetch_subject_detail(str(bangumiid))
+            )
+            return MediaInfo(bangumi_info=detail) if isinstance(detail, dict) else None
+        except Exception as err:
+            logger.error("欢乐汇聚异步获取 Bangumi 详情失败: %s", err, exc_info=True)
+            return None
+
+    def _recognize_media(self, bangumiid: int = None, **kwargs) -> Optional[MediaInfo]:
+        """
+        根据 Bangumi ID 识别媒体
+
+        :param bangumiid (int): Bangumi ID
+
+        :return MediaInfo: 媒体信息
+        """
+        return self._bangumi_info(bangumiid)
+
+    async def _async_recognize_media(
+        self, bangumiid: int = None, **kwargs
+    ) -> Optional[MediaInfo]:
+        """
+        异步根据 Bangumi ID 识别媒体
+
+        :param bangumiid (int): Bangumi ID
+
+        :return MediaInfo: 媒体信息
+        """
+        return await self._async_bangumi_info(bangumiid)
