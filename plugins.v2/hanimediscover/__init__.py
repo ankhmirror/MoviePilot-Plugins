@@ -27,16 +27,16 @@ HEADERS = {
     "Referer": f"{BASE_URL}/",
 }
 VIDEO_LINK_PATTERN = re.compile(
-    r'<a[^>]*class="[^"]*\bvideo-link\b[^"]*"[^>]*href="(?P<href>[^"]*?/watch\?v=[^"]+)"'
+    r'<a[^>]*href="\s*`?(?P<href>https?://[^"]*/watch\?v=[^"`\s]+|/watch\?v=[^"`\s]+)`?\s*"'
     r"[^>]*>(?P<body>.*?)</a>",
     re.IGNORECASE | re.DOTALL,
 )
 TITLE_PATTERN = re.compile(
-    r'<div[^>]*class="[^"]*\btitle\b[^"]*"[^>]*>(?P<title>.*?)</div>',
+    r'<div[^>]*class="[^"]*\bhome-rows-videos-title\b[^"]*"[^>]*>(?P<title>.*?)</div>',
     re.IGNORECASE | re.DOTALL,
 )
 IMAGE_PATTERN = re.compile(
-    r'<img[^>]*class="[^"]*\bmain-thumb\b[^"]*"[^>]*src="(?P<src>[^"]+)"',
+    r'<img[^>]*src="\s*`?(?P<src>[^"`]*(?:cover|thumbnail)[^"`]*)`?\s*"[^>]*>',
     re.IGNORECASE | re.DOTALL,
 )
 TAG_PATTERN = re.compile(r"<[^>]+>")
@@ -187,6 +187,17 @@ class HanimeDiscover(_PluginBase):
             return None
         return match.group("year")
 
+    @staticmethod
+    def _clean_attr_value(value: str) -> str:
+        """
+        清理 HTML 属性值中的包裹符号
+
+        :param value (str): 原始属性值
+
+        :return str: 清理后的属性值
+        """
+        return unescape(value).strip().strip("`").strip()
+
     @cached(region="hanime_discover", ttl=1800, skip_none=True)
     def __request(
         self,
@@ -247,13 +258,13 @@ class HanimeDiscover(_PluginBase):
             if not title_match or not image_match:
                 continue
 
-            detail_url = urljoin(BASE_URL, unescape(match.group("href")))
+            detail_url = urljoin(BASE_URL, self._clean_attr_value(match.group("href")))
             media_id = self._extract_media_id(detail_url)
             if media_id in seen_ids:
                 continue
 
             title = self._strip_html(title_match.group("title"))
-            poster_path = urljoin(BASE_URL, unescape(image_match.group("src")))
+            poster_path = urljoin(BASE_URL, self._clean_attr_value(image_match.group("src")))
             if not title or not poster_path:
                 continue
 
