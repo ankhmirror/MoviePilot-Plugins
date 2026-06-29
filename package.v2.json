@@ -25,5 +25,17 @@
       "v1.0.1": "修复插件目录结构、图标地址与 Hanime 页面解析规则",
       "v1.0.2": "升级多解析器，兼容首页卡片与横向卡片页面结构"
     }
+  },
+  "HuanLeHuiju": {
+    "name": "欢乐汇聚",
+    "description": "MoviePilot 详情页 metadata 融合预览插件，第一版接入 Bangumi",
+    "labels": "详情页,Metadata,Bangumi",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png",
+    "author": "踏马奔腾",
+    "level": 1,
+    "history": {
+      "v1.0.0": "首个版本，支持 Bangumi 单源 metadata 预览、缓存与详情页展示"
+    }
   }
 }
