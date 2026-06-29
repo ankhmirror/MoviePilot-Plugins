@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Hanime">
+  <rect width="128" height="128" rx="24" fill="#111827"/>
+  <rect x="18" y="18" width="92" height="92" rx="18" fill="#ec4899"/>
+  <path d="M44 34h12v24h16V34h12v60H72V70H56v24H44z" fill="#ffffff"/>
+</svg>
