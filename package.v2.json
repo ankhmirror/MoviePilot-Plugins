@@ -16,12 +16,13 @@
     "name": "Hanime探索",
     "description": "让探索支持 Hanime 的数据浏览",
     "labels": "探索,Hanime",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "https://raw.githubusercontent.com/ankhmirror/MoviePilot-Plugins/main/icons/hanime.svg",
     "author": "踏马奔腾",
     "level": 1,
     "history": {
-      "v1.0.0": "发布"
+      "v1.0.0": "发布",
+      "v1.0.1": "修复插件目录结构、图标地址与 Hanime 页面解析规则"
     }
   }
 }
