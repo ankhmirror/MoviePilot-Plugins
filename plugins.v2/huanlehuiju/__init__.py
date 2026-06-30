@@ -26,7 +26,7 @@ class HuanLeHuiju(_PluginBase):
     plugin_name = "欢乐汇聚"
     plugin_desc = "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi"
     plugin_order = 99
-    plugin_version = "1.2.0"
+    plugin_version = "1.2.1"
     plugin_author = "踏马奔腾"
     author_url = "https://trae.ai"
     plugin_icon = (
@@ -662,6 +662,59 @@ class HuanLeHuiju(_PluginBase):
                 return str(watch_ids[0])
         except Exception:
             return ""
+        return ""
+
+    @staticmethod
+    def _extract_title_from_kwargs(kwargs: Dict[str, Any]) -> str:
+        """
+        从识别参数提取标题
+
+        :param kwargs (Dict): 识别参数
+
+        :return str: 标题
+        """
+        for key in ["title", "name", "keyword", "key", "file_name", "filename", "raw_title"]:
+            value = kwargs.get(key)
+            if not value:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+        return ""
+
+    def _extract_hanime_watch_id_from_kwargs(self, kwargs: Dict[str, Any]) -> str:
+        """
+        从识别参数提取 Hanime watch ID
+
+        :param kwargs (Dict): 识别参数
+
+        :return str: watch ID
+        """
+        for key in [
+            "hanime_id",
+            "hanimeid",
+            "url",
+            "link",
+            "path",
+            "file_path",
+            "filepath",
+            "original_name",
+            "raw",
+            "title",
+            "name",
+        ]:
+            value = kwargs.get(key)
+            if not value:
+                continue
+            raw = str(value)
+            if "hanime1.me" in raw or "watch?v=" in raw or "hanime:" in raw.lower():
+                watch_id = self._extract_hanime_watch_id(raw)
+                if watch_id:
+                    return watch_id
+            if key in {"hanime_id", "hanimeid"}:
+                watch_id = self._extract_hanime_watch_id(raw)
+                if watch_id:
+                    return watch_id
         return ""
 
     @cached(region="huanlehuiju_hanime_watch", ttl=86400, skip_none=True)
@@ -1600,7 +1653,37 @@ class HuanLeHuiju(_PluginBase):
 
         :return MediaInfo: 媒体信息
         """
-        return self._bangumi_info(bangumiid)
+        if not self._enabled:
+            return None
+        if bangumiid:
+            return self._bangumi_info(bangumiid)
+
+        watch_id = self._extract_hanime_watch_id_from_kwargs(kwargs)
+        if watch_id:
+            html = self._request_hanime_watch(watch_id)
+            if html:
+                parsed = self._parse_hanime_watch(watch_id, html)
+                if parsed:
+                    query_title = str(parsed.get("series") or parsed.get("title") or "").strip()
+                    if query_title:
+                        items = (
+                            self._cached_search(query_title)
+                            if self._use_cache
+                            else self._search_subjects(query_title)
+                        )
+                        best = self._pick_best_subject(query_title, items)
+                        if best and best.get("id"):
+                            return self._bangumi_info(int(best.get("id")))
+
+        title = self._extract_title_from_kwargs(kwargs)
+        if not title:
+            return None
+        items = self._cached_search(title) if self._use_cache else self._search_subjects(title)
+        best = self._pick_best_subject(title, items)
+        if not best or not best.get("id"):
+            logger.info("欢乐汇聚未识别到 Bangumi: %s", title)
+            return None
+        return self._bangumi_info(int(best.get("id")))
 
     async def _async_recognize_media(
         self, bangumiid: int = None, **kwargs
@@ -1612,4 +1695,38 @@ class HuanLeHuiju(_PluginBase):
 
         :return MediaInfo: 媒体信息
         """
-        return await self._async_bangumi_info(bangumiid)
+        if not self._enabled:
+            return None
+        if bangumiid:
+            return await self._async_bangumi_info(bangumiid)
+
+        watch_id = self._extract_hanime_watch_id_from_kwargs(kwargs)
+        if watch_id:
+            html = self._request_hanime_watch(watch_id)
+            if html:
+                parsed = self._parse_hanime_watch(watch_id, html)
+                if parsed:
+                    query_title = str(parsed.get("series") or parsed.get("title") or "").strip()
+                    if query_title:
+                        items = (
+                            self._cached_search(query_title)
+                            if self._use_cache
+                            else await self._async_search_subjects(query_title)
+                        )
+                        best = self._pick_best_subject(query_title, items)
+                        if best and best.get("id"):
+                            return await self._async_bangumi_info(int(best.get("id")))
+
+        title = self._extract_title_from_kwargs(kwargs)
+        if not title:
+            return None
+        items = (
+            self._cached_search(title)
+            if self._use_cache
+            else await self._async_search_subjects(title)
+        )
+        best = self._pick_best_subject(title, items)
+        if not best or not best.get("id"):
+            logger.info("欢乐汇聚未识别到 Bangumi: %s", title)
+            return None
+        return await self._async_bangumi_info(int(best.get("id")))
