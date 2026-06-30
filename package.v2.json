@@ -32,7 +32,7 @@
     "name": "欢乐汇聚",
     "description": "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi",
     "labels": "识别数据源,媒体搜索,Metadata,Bangumi,Hanime",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png",
     "author": "踏马奔腾",
     "level": 1,
@@ -42,7 +42,8 @@
       "v1.1.1": "修复插件页刷新预览接口 401 未授权问题",
       "v1.1.2": "刷新预览按钮增加 apikey 参数，兼容插件 API 全局鉴权要求",
       "v1.2.0": "新增 Hanime 条目检索解析能力，支持与 Bangumi 预览融合展示",
-      "v1.2.1": "识别阶段支持按标题检索 Bangumi，并支持从 Hanime 链接提取 ID 辅助识别"
+      "v1.2.1": "识别阶段支持按标题检索 Bangumi，并支持从 Hanime 链接提取 ID 辅助识别",
+      "v1.2.2": "修复异步 Bangumi 请求兼容性，并支持媒体搜索直接按 Hanime ID 返回结果"
     }
   }
 }

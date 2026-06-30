@@ -26,7 +26,7 @@ class HuanLeHuiju(_PluginBase):
     plugin_name = "欢乐汇聚"
     plugin_desc = "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi"
     plugin_order = 99
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     plugin_author = "踏马奔腾"
     author_url = "https://trae.ai"
     plugin_icon = (
@@ -910,7 +910,9 @@ class HuanLeHuiju(_PluginBase):
             ua=settings.NORMAL_USER_AGENT,
             headers=self._headers(),
         ).get_res(url)
-        if response is None or not response.ok:
+        status_code = getattr(response, "status_code", None) if response is not None else None
+        ok = getattr(response, "ok", None)
+        if response is None or (ok is False) or (ok is None and status_code not in {200, 201}):
             return None
         try:
             payload = response.json()
@@ -932,7 +934,9 @@ class HuanLeHuiju(_PluginBase):
             ua=settings.NORMAL_USER_AGENT,
             headers=self._headers(),
         ).get_res(url)
-        if response is None or not response.ok:
+        status_code = getattr(response, "status_code", None) if response is not None else None
+        ok = getattr(response, "ok", None)
+        if response is None or (ok is False) or (ok is None and status_code not in {200, 201}):
             return None
         try:
             payload = response.json()
@@ -941,6 +945,52 @@ class HuanLeHuiju(_PluginBase):
         if not isinstance(payload, dict):
             return None
         return payload
+
+    def _hanime_to_mediainfo(self, watch: Dict[str, Any]) -> Optional[MediaInfo]:
+        """
+        将 Hanime 条目转换为 MediaInfo
+
+        :param watch (Dict): Hanime 解析结果
+
+        :return MediaInfo: 媒体信息
+        """
+        title = str(watch.get("series") or watch.get("title") or "").strip()
+        original_title = str(watch.get("title") or "").strip()
+        date_text = str(watch.get("date") or "").strip()
+        year = date_text.split("-", 1)[0] if date_text else ""
+        overview = str(watch.get("description") or "").strip()
+        poster = str(watch.get("poster") or "").strip()
+        media_id = str(watch.get("id") or "").strip()
+        try:
+            return MediaInfo(
+                type="电影",
+                title=title or original_title,
+                original_title=original_title,
+                year=year,
+                overview=overview,
+                poster_path=poster,
+                mediaid_prefix="hanime",
+                media_id=media_id,
+            )
+        except Exception:
+            try:
+                info = MediaInfo(bangumi_info={})
+                if media_id:
+                    setattr(info, "mediaid_prefix", "hanime")
+                    setattr(info, "media_id", media_id)
+                if title or original_title:
+                    setattr(info, "title", title or original_title)
+                if original_title:
+                    setattr(info, "original_title", original_title)
+                if year:
+                    setattr(info, "year", year)
+                if overview:
+                    setattr(info, "overview", overview)
+                if poster:
+                    setattr(info, "poster_path", poster)
+                return info
+            except Exception:
+                return None
 
     @cached(region="huanlehuiju_bangumi_search", ttl=1800, skip_none=True)
     def _cached_search(self, title: str) -> List[dict]:
@@ -1485,7 +1535,19 @@ class HuanLeHuiju(_PluginBase):
             return []
 
         try:
-            items = self._search_subjects(meta.name)
+            query = str(meta.name).strip()
+            watch_id = self._extract_hanime_watch_id(query)
+            if watch_id:
+                html = self._request_hanime_watch(watch_id)
+                if html:
+                    watch = self._parse_hanime_watch(watch_id, html)
+                    if watch:
+                        hanime_media = self._hanime_to_mediainfo(watch)
+                        if hanime_media:
+                            return [hanime_media]
+                return []
+
+            items = self._search_subjects(query)
             medias = [MediaInfo(bangumi_info=item) for item in items]
             self._apply_season(medias, getattr(meta, "begin_season", None))
             return medias
@@ -1507,7 +1569,19 @@ class HuanLeHuiju(_PluginBase):
             return []
 
         try:
-            items = await self._async_search_subjects(meta.name)
+            query = str(meta.name).strip()
+            watch_id = self._extract_hanime_watch_id(query)
+            if watch_id:
+                html = self._request_hanime_watch(watch_id)
+                if html:
+                    watch = self._parse_hanime_watch(watch_id, html)
+                    if watch:
+                        hanime_media = self._hanime_to_mediainfo(watch)
+                        if hanime_media:
+                            return [hanime_media]
+                return []
+
+            items = await self._async_search_subjects(query)
             medias = [MediaInfo(bangumi_info=item) for item in items]
             self._apply_season(medias, getattr(meta, "begin_season", None))
             return medias
@@ -1532,14 +1606,25 @@ class HuanLeHuiju(_PluginBase):
 
         try:
             if mediaid:
-                bangumi_id = str(mediaid).split(":", 1)[-1]
-                detail = (
-                    self._cached_subject(bangumi_id)
-                    if self._use_cache
-                    else self._fetch_subject_detail(bangumi_id)
-                )
-                if detail:
-                    details.append(MediaInfo(bangumi_info=detail))
+                prefix, value = str(mediaid).split(":", 1) if ":" in str(mediaid) else ("", str(mediaid))
+                if prefix.lower() == "hanime":
+                    watch_id = self._extract_hanime_watch_id(value)
+                    html = self._request_hanime_watch(watch_id) if watch_id else None
+                    if html:
+                        watch = self._parse_hanime_watch(watch_id, html)
+                        if watch:
+                            hanime_media = self._hanime_to_mediainfo(watch)
+                            if hanime_media:
+                                details.append(hanime_media)
+                else:
+                    bangumi_id = value
+                    detail = (
+                        self._cached_subject(bangumi_id)
+                        if self._use_cache
+                        else self._fetch_subject_detail(bangumi_id)
+                    )
+                    if detail:
+                        details.append(MediaInfo(bangumi_info=detail))
             else:
                 medias = self._search_medias(meta) or []
                 for media in medias:
@@ -1576,14 +1661,25 @@ class HuanLeHuiju(_PluginBase):
 
         try:
             if mediaid:
-                bangumi_id = str(mediaid).split(":", 1)[-1]
-                detail = (
-                    self._cached_subject(bangumi_id)
-                    if self._use_cache
-                    else await self._async_fetch_subject_detail(bangumi_id)
-                )
-                if detail:
-                    details.append(MediaInfo(bangumi_info=detail))
+                prefix, value = str(mediaid).split(":", 1) if ":" in str(mediaid) else ("", str(mediaid))
+                if prefix.lower() == "hanime":
+                    watch_id = self._extract_hanime_watch_id(value)
+                    html = self._request_hanime_watch(watch_id) if watch_id else None
+                    if html:
+                        watch = self._parse_hanime_watch(watch_id, html)
+                        if watch:
+                            hanime_media = self._hanime_to_mediainfo(watch)
+                            if hanime_media:
+                                details.append(hanime_media)
+                else:
+                    bangumi_id = value
+                    detail = (
+                        self._cached_subject(bangumi_id)
+                        if self._use_cache
+                        else await self._async_fetch_subject_detail(bangumi_id)
+                    )
+                    if detail:
+                        details.append(MediaInfo(bangumi_info=detail))
             else:
                 medias = await self._async_search_medias(meta) or []
                 for media in medias:
