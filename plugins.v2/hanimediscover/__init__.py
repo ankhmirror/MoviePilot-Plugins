@@ -68,7 +68,7 @@ class HanimeDiscover(_PluginBase):
     plugin_icon = (
         "https://raw.githubusercontent.com/ankhmirror/MoviePilot-Plugins/main/icons/hanime.svg"
     )
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.3"
     plugin_author = "TRAE"
     author_url = "https://trae.ai"
     plugin_config_prefix = "hanimediscover_"
