@@ -132,7 +132,7 @@ class JavbusDiscover(_PluginBase):
     plugin_name = "JAVBUS探索"
     plugin_desc = "让探索支持 JavBus 的数据浏览"
     plugin_icon = "https://www.javbus.com/favicon.ico"
-    plugin_version = "1.2.0"
+    plugin_version = "1.2.1"
     plugin_author = "TRAE"
     author_url = "https://trae.ai"
     plugin_config_prefix = "javbusdiscover_"
@@ -532,10 +532,6 @@ class JavbusDiscover(_PluginBase):
             media_id=media_id,
             poster_path=poster_path,
         )
-        setattr(media_info, "detail_url", detail_url)
-        setattr(media_info, "homepage", detail_url)
-        if release_date:
-            setattr(media_info, "release_date", release_date)
 
         year = self._extract_year(release_date)
         if year:
