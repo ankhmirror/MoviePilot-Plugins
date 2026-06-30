@@ -61,6 +61,23 @@ HORIZONTAL_IMAGE_PATTERN = re.compile(
 )
 TAG_PATTERN = re.compile(r"<[^>]+>")
 YEAR_PATTERN = re.compile(r"(?P<year>(19|20)\d{2})")
+WATCH_TITLE_PATTERN = re.compile(
+    r'<h3[^>]*id="shareBtn-title"[^>]*>(?P<title>.*?)</h3>',
+    re.IGNORECASE | re.DOTALL,
+)
+WATCH_DESC_PATTERN = re.compile(
+    r'<div[^>]*class="[^"]*\bvideo-caption-text\b[^"]*"[^>]*>(?P<desc>.*?)</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+WATCH_DATE_PATTERN = re.compile(r"(?P<date>\d{4}-\d{2}-\d{2})")
+WATCH_TAG_PATTERN = re.compile(
+    r'<a[^>]*href="\s*`?(?P<href>/search\?[^"`]+)`?\s*"[^>]*>(?P<tag>.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+WATCH_OG_IMAGE_PATTERN = re.compile(
+    r'<meta[^>]*property="\s*og:image\s*"[^>]*content="\s*`?(?P<src>[^"`\s]+)`?\s*"[^>]*>',
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class HanimeDiscover(_PluginBase):
@@ -73,7 +90,7 @@ class HanimeDiscover(_PluginBase):
     plugin_icon = (
         "https://raw.githubusercontent.com/ankhmirror/MoviePilot-Plugins/main/icons/hanime.svg"
     )
-    plugin_version = "1.0.4"
+    plugin_version = "1.1.0"
     plugin_author = "TRAE"
     author_url = "https://trae.ai"
     plugin_config_prefix = "hanimediscover_"
@@ -130,6 +147,13 @@ class HanimeDiscover(_PluginBase):
                 "methods": ["GET"],
                 "summary": "Hanime 探索数据源",
                 "description": "获取 Hanime 探索数据",
+            },
+            {
+                "path": "/hanime_detail",
+                "endpoint": self.hanime_detail,
+                "methods": ["GET"],
+                "summary": "Hanime 条目详情",
+                "description": "根据 Hanime watch ID 或链接获取条目详情与相关条目",
             }
         ]
 
@@ -450,6 +474,159 @@ class HanimeDiscover(_PluginBase):
             seen_ids=seen_ids,
             results=results,
         )
+
+    @staticmethod
+    def _extract_watch_id(value: str) -> Optional[str]:
+        """
+        提取 Hanime watch ID
+
+        :param value (str): watch ID 或链接
+
+        :return str: watch ID
+        """
+        if not value:
+            return None
+        raw = str(value).strip()
+        if raw.isdigit():
+            return raw
+        parsed = urlparse(raw)
+        media_ids = parse_qs(parsed.query).get("v", [])
+        if media_ids and str(media_ids[0]).isdigit():
+            return str(media_ids[0])
+        return None
+
+    @cached(region="hanime_watch_detail", ttl=86400, skip_none=True)
+    def _request_watch(self, watch_id: str) -> Optional[str]:
+        """
+        请求 Hanime watch 详情页
+
+        :param watch_id (str): watch ID
+
+        :return str: 详情页 HTML
+        """
+        request_url = f"{BASE_URL}/watch?v={watch_id}"
+        res = RequestUtils(
+            headers=self._build_headers(),
+            proxies=self._build_proxies(),
+        ).get_res(request_url)
+        if res is None:
+            return None
+        if not res.ok:
+            return None
+        return res.text
+
+    def _parse_watch_tags(self, html: str) -> List[str]:
+        """
+        解析 watch 标签
+
+        :param html (str): 详情页 HTML
+
+        :return List: 标签列表
+        """
+        tags: List[str] = []
+        for match in WATCH_TAG_PATTERN.finditer(html):
+            href = match.group("href")
+            if not href:
+                continue
+            raw = self._strip_html(match.group("tag"))
+            if not raw:
+                continue
+            raw = raw.lstrip("#").strip()
+            raw = re.sub(r"\(\s*\d+\s*\)$", "", raw).strip()
+            if not raw:
+                continue
+            if raw not in tags:
+                tags.append(raw)
+        return tags
+
+    def _parse_watch_related(self, html: str) -> List[Dict[str, Any]]:
+        """
+        解析相关条目
+
+        :param html (str): 详情页 HTML
+
+        :return List: 相关条目列表
+        """
+        related: List[Dict[str, Any]] = []
+        seen: Set[str] = set()
+        results: List[schemas.MediaInfo] = []
+
+        self._parse_home_cards(html=html, year=None, seen_ids=seen, results=results)
+        self._parse_horizontal_cards(html=html, year=None, seen_ids=seen, results=results)
+
+        for item in results[:24]:
+            media_id = getattr(item, "media_id", None)
+            title = getattr(item, "title", None)
+            poster_path = getattr(item, "poster_path", None)
+            if not media_id or not title:
+                continue
+            related.append(
+                {
+                    "id": str(media_id),
+                    "title": str(title),
+                    "poster": str(poster_path) if poster_path else "",
+                    "url": f"{BASE_URL}/watch?v={media_id}",
+                }
+            )
+        return related
+
+    def _parse_watch_detail(self, watch_id: str, html: str) -> Dict[str, Any]:
+        """
+        解析 watch 详情
+
+        :param watch_id (str): watch ID
+        :param html (str): 详情页 HTML
+
+        :return Dict: 详情信息
+        """
+        title_match = WATCH_TITLE_PATTERN.search(html or "")
+        desc_match = WATCH_DESC_PATTERN.search(html or "")
+        og_match = WATCH_OG_IMAGE_PATTERN.search(html or "")
+        date_match = WATCH_DATE_PATTERN.search(html or "")
+
+        title = self._strip_html(title_match.group("title")) if title_match else ""
+        description = self._strip_html(desc_match.group("desc")) if desc_match else ""
+        poster = self._clean_attr_value(og_match.group("src")) if og_match else ""
+        date_text = date_match.group("date") if date_match else ""
+
+        tags = self._parse_watch_tags(html or "")
+        related = self._parse_watch_related(html or "")
+
+        return {
+            "id": str(watch_id),
+            "url": f"{BASE_URL}/watch?v={watch_id}",
+            "title": title,
+            "description": description,
+            "date": date_text,
+            "tags": tags,
+            "poster": poster,
+            "related": related,
+        }
+
+    def hanime_detail(self, id: str = "", url: str = "") -> Dict[str, Any]:
+        """
+        获取 Hanime 条目详情
+
+        :param id (str): watch ID
+        :param url (str): watch 链接
+
+        :return Dict: 条目详情
+        """
+        watch_id = self._extract_watch_id(id) or self._extract_watch_id(url)
+        if not watch_id:
+            return {"ok": False, "message": "缺少有效的 watch ID 或链接"}
+
+        html = self._request_watch(watch_id)
+        if not html:
+            return {"ok": False, "message": "获取详情页失败，可能触发了安全验证或网络不可达"}
+
+        try:
+            data = self._parse_watch_detail(watch_id=watch_id, html=html)
+        except Exception as err:
+            logger.error("解析 Hanime 详情失败: %s", err, exc_info=True)
+            return {"ok": False, "message": "解析详情页失败"}
+
+        return {"ok": True, "message": "ok", "data": data}
 
     @cached(region="hanime_discover", ttl=1800, skip_none=True)
     def __request(

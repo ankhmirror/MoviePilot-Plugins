@@ -16,7 +16,7 @@
     "name": "Hanime探索",
     "description": "让探索支持 Hanime 的数据浏览",
     "labels": "探索,Hanime",
-    "version": "1.0.4",
+    "version": "1.1.0",
     "icon": "https://raw.githubusercontent.com/ankhmirror/MoviePilot-Plugins/main/icons/hanime.svg",
     "author": "踏马奔腾",
     "level": 1,
@@ -25,7 +25,8 @@
       "v1.0.1": "修复插件目录结构、图标地址与 Hanime 页面解析规则",
       "v1.0.2": "升级多解析器，兼容首页卡片与横向卡片页面结构",
       "v1.0.3": "修复插件版本号未同步导致持续提示更新",
-      "v1.0.4": "支持配置 Cookie/代理以应对安全验证 403"
+      "v1.0.4": "支持配置 Cookie/代理以应对安全验证 403",
+      "v1.1.0": "新增条目详情检索接口，支持标题简介标签与相关条目解析"
     }
   },
   "HuanLeHuiju": {
