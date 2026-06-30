@@ -26,7 +26,7 @@ class HuanLeHuiju(_PluginBase):
     plugin_name = "欢乐汇聚"
     plugin_desc = "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi"
     plugin_order = 99
-    plugin_version = "1.2.2"
+    plugin_version = "1.3.0"
     plugin_author = "踏马奔腾"
     author_url = "https://trae.ai"
     plugin_icon = (
@@ -63,6 +63,31 @@ class HuanLeHuiju(_PluginBase):
     )
     _hanime_tag_pattern = re.compile(
         r'<div[^>]*class="[^"]*\bsingle-video-tag\b[^"]*"[^>]*>.*?<a[^>]*>(?P<tag>.*?)</a>.*?</div>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_search_item_pattern = re.compile(
+        r'<a[^>]*href="\s*`?(?P<href>https?://[^"`\s]*/watch\?v=(?P<id>\d+)[^"`\s]*|/watch\?v=(?P<id2>\d+)[^"`\s]*)`?\s*"'
+        r'[^>]*class="[^"]*\bvideo-link\b[^"]*"[^>]*>(?P<body>.*?)</a>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_search_thumb_pattern = re.compile(
+        r'<img[^>]*class="[^"]*\bmain-thumb\b[^"]*"[^>]*src="\s*`?(?P<src>[^"`\s]+)`?\s*"[^>]*>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_search_title_pattern = re.compile(
+        r'<div[^>]*class="[^"]*\btitle\b[^"]*"[^>]*>(?P<title>.*?)</div>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_search_duration_pattern = re.compile(
+        r'<div[^>]*class="[^"]*\bduration\b[^"]*"[^>]*>(?P<duration>.*?)</div>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_search_like_pattern = re.compile(
+        r"<i[^>]*>\s*thumb_up\s*</i>\s*(?P<like>\d+%)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_search_views_pattern = re.compile(
+        r'<div[^>]*class="[^"]*\bstat-item\b[^"]*"[^>]*>\s*(?P<views>\d+(?:\.\d+)?万?次)\s*</div>',
         re.IGNORECASE | re.DOTALL,
     )
     _hanime_strip_tag_pattern = re.compile(r"<[^>]+>")
@@ -113,6 +138,9 @@ class HuanLeHuiju(_PluginBase):
         self._hanime_cookie = str(config.get("hanime_cookie", "") or "").strip()
         self._hanime_use_proxy = bool(config.get("hanime_use_proxy", True))
         self._hanime_proxy = str(config.get("hanime_proxy", "") or "").strip()
+
+        if "vdownload.hembed.com" not in settings.SECURITY_IMAGE_DOMAINS:
+            settings.SECURITY_IMAGE_DOMAINS.append("vdownload.hembed.com")
 
     def get_state(self) -> bool:
         """
@@ -731,9 +759,133 @@ class HuanLeHuiju(_PluginBase):
             headers=self._build_hanime_headers(),
             proxies=self._build_hanime_proxies(),
         ).get_res(request_url)
-        if response is None or not response.ok:
+        status_code = getattr(response, "status_code", None) if response is not None else None
+        ok = getattr(response, "ok", None)
+        if response is None or (ok is False) or (ok is None and status_code not in {200, 201}):
             return None
         return response.text
+
+    @cached(region="huanlehuiju_hanime_search", ttl=1800, skip_none=True)
+    def _request_hanime_search(self, query: str) -> Optional[str]:
+        """
+        请求 Hanime 搜索页
+
+        :param query (str): 搜索关键词
+
+        :return str: 搜索页 HTML
+        """
+        clean_query = str(query or "").strip()
+        if not clean_query:
+            return None
+        request_url = f"{self.HANIME_BASE_URL}/search?query={quote(clean_query)}"
+        response = RequestUtils(
+            headers=self._build_hanime_headers(),
+            proxies=self._build_hanime_proxies(),
+        ).get_res(request_url)
+        status_code = getattr(response, "status_code", None) if response is not None else None
+        ok = getattr(response, "ok", None)
+        if response is None or (ok is False) or (ok is None and status_code not in {200, 201}):
+            return None
+        return response.text
+
+    def _parse_hanime_search(self, query: str, html: str) -> List[Dict[str, Any]]:
+        """
+        解析 Hanime 搜索结果
+
+        :param query (str): 搜索关键词
+        :param html (str): HTML
+
+        :return List: 条目列表
+        """
+        if not html:
+            return []
+        items: List[Dict[str, Any]] = []
+        for match in self._hanime_search_item_pattern.finditer(html):
+            body = match.group("body") or ""
+            watch_id = match.group("id") or match.group("id2") or ""
+            watch_id = str(watch_id).strip()
+            if not watch_id:
+                continue
+
+            title_match = self._hanime_search_title_pattern.search(body)
+            title = (
+                self._strip_hanime_html(title_match.group("title"))
+                if title_match
+                else ""
+            )
+
+            thumb_match = self._hanime_search_thumb_pattern.search(body)
+            poster = thumb_match.group("src") if thumb_match else ""
+
+            duration_match = self._hanime_search_duration_pattern.search(body)
+            duration = (
+                self._strip_hanime_html(duration_match.group("duration"))
+                if duration_match
+                else ""
+            )
+
+            like_match = self._hanime_search_like_pattern.search(body)
+            like = like_match.group("like") if like_match else ""
+
+            views = ""
+            view_matches = list(self._hanime_search_views_pattern.finditer(body))
+            if view_matches:
+                views = view_matches[-1].group("views")
+
+            items.append(
+                {
+                    "id": watch_id,
+                    "url": f"{self.HANIME_BASE_URL}/watch?v={watch_id}",
+                    "title": title,
+                    "poster": poster,
+                    "duration": duration,
+                    "like": like,
+                    "views": views,
+                    "query": query,
+                }
+            )
+        return items
+
+    def _hanime_search_to_mediainfo(self, item: Dict[str, Any]) -> Optional[MediaInfo]:
+        """
+        将 Hanime 搜索条目转换为 MediaInfo
+
+        :param item (Dict): 搜索条目
+
+        :return MediaInfo: 媒体信息
+        """
+        try:
+            info = MediaInfo(bangumi_info={})
+        except Exception:
+            return None
+        media_id = str(item.get("id") or "").strip()
+        title = str(item.get("title") or "").strip()
+        poster = str(item.get("poster") or "").strip()
+        like = str(item.get("like") or "").strip()
+        views = str(item.get("views") or "").strip()
+        duration = str(item.get("duration") or "").strip()
+
+        overview_parts: List[str] = []
+        if like:
+            overview_parts.append(f"好评 {like}")
+        if views:
+            overview_parts.append(f"播放 {views}")
+        if duration:
+            overview_parts.append(f"时长 {duration}")
+        overview = " / ".join(overview_parts)
+
+        if media_id:
+            setattr(info, "mediaid_prefix", "hanime")
+            setattr(info, "media_id", media_id)
+        if title:
+            setattr(info, "title", title)
+            setattr(info, "original_title", title)
+        if poster:
+            setattr(info, "poster_path", poster)
+        if overview:
+            setattr(info, "overview", overview)
+        setattr(info, "type", "电影")
+        return info
 
     def _parse_hanime_watch(self, watch_id: str, html: str) -> Optional[Dict[str, Any]]:
         """
@@ -796,6 +948,39 @@ class HuanLeHuiju(_PluginBase):
             "poster": poster,
             "tags": tags,
         }
+
+    def _hanime_watch_to_mediainfo(self, watch: Dict[str, Any]) -> Optional[MediaInfo]:
+        """
+        将 Hanime watch 条目转换为 MediaInfo
+
+        :param watch (Dict): watch 解析结果
+
+        :return MediaInfo: 媒体信息
+        """
+        try:
+            info = MediaInfo(bangumi_info={})
+        except Exception:
+            return None
+
+        media_id = str(watch.get("id") or "").strip()
+        title = str(watch.get("series") or watch.get("title") or "").strip()
+        original_title = str(watch.get("title") or "").strip()
+        poster = str(watch.get("poster") or "").strip()
+        overview = str(watch.get("description") or "").strip()
+
+        if media_id:
+            setattr(info, "mediaid_prefix", "hanime")
+            setattr(info, "media_id", media_id)
+        if title:
+            setattr(info, "title", title)
+        if original_title:
+            setattr(info, "original_title", original_title)
+        if poster:
+            setattr(info, "poster_path", poster)
+        if overview:
+            setattr(info, "overview", overview)
+        setattr(info, "type", "电影")
+        return info
 
     def _build_hanime_metadata(self, hanime: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -945,52 +1130,6 @@ class HuanLeHuiju(_PluginBase):
         if not isinstance(payload, dict):
             return None
         return payload
-
-    def _hanime_to_mediainfo(self, watch: Dict[str, Any]) -> Optional[MediaInfo]:
-        """
-        将 Hanime 条目转换为 MediaInfo
-
-        :param watch (Dict): Hanime 解析结果
-
-        :return MediaInfo: 媒体信息
-        """
-        title = str(watch.get("series") or watch.get("title") or "").strip()
-        original_title = str(watch.get("title") or "").strip()
-        date_text = str(watch.get("date") or "").strip()
-        year = date_text.split("-", 1)[0] if date_text else ""
-        overview = str(watch.get("description") or "").strip()
-        poster = str(watch.get("poster") or "").strip()
-        media_id = str(watch.get("id") or "").strip()
-        try:
-            return MediaInfo(
-                type="电影",
-                title=title or original_title,
-                original_title=original_title,
-                year=year,
-                overview=overview,
-                poster_path=poster,
-                mediaid_prefix="hanime",
-                media_id=media_id,
-            )
-        except Exception:
-            try:
-                info = MediaInfo(bangumi_info={})
-                if media_id:
-                    setattr(info, "mediaid_prefix", "hanime")
-                    setattr(info, "media_id", media_id)
-                if title or original_title:
-                    setattr(info, "title", title or original_title)
-                if original_title:
-                    setattr(info, "original_title", original_title)
-                if year:
-                    setattr(info, "year", year)
-                if overview:
-                    setattr(info, "overview", overview)
-                if poster:
-                    setattr(info, "poster_path", poster)
-                return info
-            except Exception:
-                return None
 
     @cached(region="huanlehuiju_bangumi_search", ttl=1800, skip_none=True)
     def _cached_search(self, title: str) -> List[dict]:
@@ -1542,17 +1681,26 @@ class HuanLeHuiju(_PluginBase):
                 if html:
                     watch = self._parse_hanime_watch(watch_id, html)
                     if watch:
-                        hanime_media = self._hanime_to_mediainfo(watch)
-                        if hanime_media:
-                            return [hanime_media]
+                        media = self._hanime_watch_to_mediainfo(watch)
+                        return [media] if media else []
                 return []
 
             items = self._search_subjects(query)
             medias = [MediaInfo(bangumi_info=item) for item in items]
-            self._apply_season(medias, getattr(meta, "begin_season", None))
-            return medias
+            if medias:
+                self._apply_season(medias, getattr(meta, "begin_season", None))
+                return medias
+
+            html = self._request_hanime_search(query)
+            hanime_items = self._parse_hanime_search(query, html or "")
+            hanime_medias: List[MediaInfo] = []
+            for item in hanime_items[:20]:
+                media = self._hanime_search_to_mediainfo(item)
+                if media:
+                    hanime_medias.append(media)
+            return hanime_medias
         except Exception as err:
-            logger.error("欢乐汇聚搜索 Bangumi 失败: %s", err, exc_info=True)
+            logger.error("欢乐汇聚搜索失败: %s", err, exc_info=True)
             return []
 
     async def _async_search_medias(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
@@ -1576,17 +1724,26 @@ class HuanLeHuiju(_PluginBase):
                 if html:
                     watch = self._parse_hanime_watch(watch_id, html)
                     if watch:
-                        hanime_media = self._hanime_to_mediainfo(watch)
-                        if hanime_media:
-                            return [hanime_media]
+                        media = self._hanime_watch_to_mediainfo(watch)
+                        return [media] if media else []
                 return []
 
             items = await self._async_search_subjects(query)
             medias = [MediaInfo(bangumi_info=item) for item in items]
-            self._apply_season(medias, getattr(meta, "begin_season", None))
-            return medias
+            if medias:
+                self._apply_season(medias, getattr(meta, "begin_season", None))
+                return medias
+
+            html = self._request_hanime_search(query)
+            hanime_items = self._parse_hanime_search(query, html or "")
+            hanime_medias: List[MediaInfo] = []
+            for item in hanime_items[:20]:
+                media = self._hanime_search_to_mediainfo(item)
+                if media:
+                    hanime_medias.append(media)
+            return hanime_medias
         except Exception as err:
-            logger.error("欢乐汇聚异步搜索 Bangumi 失败: %s", err, exc_info=True)
+            logger.error("欢乐汇聚异步搜索失败: %s", err, exc_info=True)
             return []
 
     def _scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
@@ -1606,16 +1763,18 @@ class HuanLeHuiju(_PluginBase):
 
         try:
             if mediaid:
-                prefix, value = str(mediaid).split(":", 1) if ":" in str(mediaid) else ("", str(mediaid))
+                prefix, value = (
+                    str(mediaid).split(":", 1) if ":" in str(mediaid) else ("", str(mediaid))
+                )
                 if prefix.lower() == "hanime":
                     watch_id = self._extract_hanime_watch_id(value)
                     html = self._request_hanime_watch(watch_id) if watch_id else None
                     if html:
                         watch = self._parse_hanime_watch(watch_id, html)
                         if watch:
-                            hanime_media = self._hanime_to_mediainfo(watch)
-                            if hanime_media:
-                                details.append(hanime_media)
+                            media = self._hanime_watch_to_mediainfo(watch)
+                            if media:
+                                details.append(media)
                 else:
                     bangumi_id = value
                     detail = (
@@ -1661,16 +1820,18 @@ class HuanLeHuiju(_PluginBase):
 
         try:
             if mediaid:
-                prefix, value = str(mediaid).split(":", 1) if ":" in str(mediaid) else ("", str(mediaid))
+                prefix, value = (
+                    str(mediaid).split(":", 1) if ":" in str(mediaid) else ("", str(mediaid))
+                )
                 if prefix.lower() == "hanime":
                     watch_id = self._extract_hanime_watch_id(value)
                     html = self._request_hanime_watch(watch_id) if watch_id else None
                     if html:
                         watch = self._parse_hanime_watch(watch_id, html)
                         if watch:
-                            hanime_media = self._hanime_to_mediainfo(watch)
-                            if hanime_media:
-                                details.append(hanime_media)
+                            media = self._hanime_watch_to_mediainfo(watch)
+                            if media:
+                                details.append(media)
                 else:
                     bangumi_id = value
                     detail = (
