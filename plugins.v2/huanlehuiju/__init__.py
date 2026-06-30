@@ -23,7 +23,7 @@ class HuanLeHuiju(_PluginBase):
     plugin_name = "欢乐汇聚"
     plugin_desc = "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi"
     plugin_order = 99
-    plugin_version = "1.1.0"
+    plugin_version = "1.1.1"
     plugin_author = "踏马奔腾"
     author_url = "https://trae.ai"
     plugin_icon = (
@@ -110,7 +110,6 @@ class HuanLeHuiju(_PluginBase):
                 "path": "/refresh_preview",
                 "endpoint": self.refresh_preview,
                 "methods": ["GET"],
-                "auth": "apikey",
                 "summary": "刷新欢乐汇聚预览",
                 "description": "按当前插件配置刷新 Bangumi metadata 预览结果",
             },
@@ -118,7 +117,6 @@ class HuanLeHuiju(_PluginBase):
                 "path": "/query_metadata",
                 "endpoint": self.query_metadata,
                 "methods": ["GET"],
-                "auth": "apikey",
                 "summary": "查询融合 metadata",
                 "description": "按标题或 Bangumi ID 查询 metadata，并可选保存为详情页预览",
             },
