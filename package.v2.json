@@ -16,7 +16,7 @@
     "name": "Hanime探索",
     "description": "让探索支持 Hanime 的数据浏览",
     "labels": "探索,Hanime",
-    "version": "1.1.0",
+    "version": "1.0.4",
     "icon": "https://raw.githubusercontent.com/ankhmirror/MoviePilot-Plugins/main/icons/hanime.svg",
     "author": "踏马奔腾",
     "level": 1,
@@ -25,15 +25,14 @@
       "v1.0.1": "修复插件目录结构、图标地址与 Hanime 页面解析规则",
       "v1.0.2": "升级多解析器，兼容首页卡片与横向卡片页面结构",
       "v1.0.3": "修复插件版本号未同步导致持续提示更新",
-      "v1.0.4": "支持配置 Cookie/代理以应对安全验证 403",
-      "v1.1.0": "新增条目详情检索接口，支持标题简介标签与相关条目解析"
+      "v1.0.4": "支持配置 Cookie/代理以应对安全验证 403"
     }
   },
   "HuanLeHuiju": {
     "name": "欢乐汇聚",
     "description": "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi",
-    "labels": "识别数据源,媒体搜索,Metadata,Bangumi",
-    "version": "1.1.2",
+    "labels": "识别数据源,媒体搜索,Metadata,Bangumi,Hanime",
+    "version": "1.2.0",
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png",
     "author": "踏马奔腾",
     "level": 1,
@@ -41,7 +40,8 @@
       "v1.0.0": "首个版本，支持 Bangumi 单源 metadata 预览、缓存与详情页展示",
       "v1.1.0": "增加全局识别、全局搜索和全局刮削接口，可用于系统识别数据源与媒体搜索数据源",
       "v1.1.1": "修复插件页刷新预览接口 401 未授权问题",
-      "v1.1.2": "刷新预览按钮增加 apikey 参数，兼容插件 API 全局鉴权要求"
+      "v1.1.2": "刷新预览按钮增加 apikey 参数，兼容插件 API 全局鉴权要求",
+      "v1.2.0": "新增 Hanime 条目检索解析能力，支持与 Bangumi 预览融合展示"
     }
   }
 }

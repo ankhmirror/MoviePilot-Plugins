@@ -1,5 +1,8 @@
 from datetime import datetime
+import re
+from html import unescape
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 from urllib.parse import quote
 
 from app.core.cache import cached
@@ -23,19 +26,57 @@ class HuanLeHuiju(_PluginBase):
     plugin_name = "欢乐汇聚"
     plugin_desc = "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi"
     plugin_order = 99
-    plugin_version = "1.1.2"
+    plugin_version = "1.2.0"
     plugin_author = "踏马奔腾"
     author_url = "https://trae.ai"
     plugin_icon = (
         "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png"
     )
 
+    HANIME_BASE_URL = "https://hanime1.me"
+    _hanime_headers = {
+        "User-Agent": settings.NORMAL_USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": f"{HANIME_BASE_URL}/",
+    }
+    _hanime_title_pattern = re.compile(
+        r'<h3[^>]*id="shareBtn-title"[^>]*>(?P<title>.*?)</h3>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_series_pattern = re.compile(
+        r'<div[^>]*class="hidden-xs"[^>]*>.*?</div>\s*<div[^>]*>(?P<series>.*?)</div>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_date_pattern = re.compile(r"(?P<date>\d{4}-\d{2}-\d{2})")
+    _hanime_views_pattern = re.compile(
+        r"观看次数：(?P<views>[^<\s]+)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_desc_pattern = re.compile(
+        r'<div[^>]*class="[^"]*\bvideo-caption-text\b[^"]*"[^>]*>(?P<desc>.*?)</div>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_og_image_pattern = re.compile(
+        r'<meta[^>]*property="\s*og:image\s*"[^>]*content="\s*(?P<src>[^"\s]+)\s*"[^>]*>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_tag_pattern = re.compile(
+        r'<div[^>]*class="[^"]*\bsingle-video-tag\b[^"]*"[^>]*>.*?<a[^>]*>(?P<tag>.*?)</a>.*?</div>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    _hanime_strip_tag_pattern = re.compile(r"<[^>]+>")
+
     _enabled: bool = False
     _authorization: str = ""
     _preview_title: str = ""
     _preview_bangumi_id: str = ""
+    _preview_hanime_id: str = ""
     _use_cache: bool = True
     _prefer_exact_match: bool = True
+    _hanime_cookie: str = ""
+    _hanime_use_proxy: bool = True
+    _hanime_proxy: str = ""
 
     def init_plugin(self, config: dict = None) -> None:
         """
@@ -47,8 +88,12 @@ class HuanLeHuiju(_PluginBase):
         self._authorization = ""
         self._preview_title = ""
         self._preview_bangumi_id = ""
+        self._preview_hanime_id = ""
         self._use_cache = True
         self._prefer_exact_match = True
+        self._hanime_cookie = ""
+        self._hanime_use_proxy = True
+        self._hanime_proxy = ""
 
         if not config:
             return
@@ -62,8 +107,12 @@ class HuanLeHuiju(_PluginBase):
                 self._authorization = f"Bearer {authorization}"
         self._preview_title = str(config.get("preview_title", "") or "").strip()
         self._preview_bangumi_id = str(config.get("preview_bangumi_id", "") or "").strip()
+        self._preview_hanime_id = str(config.get("preview_hanime_id", "") or "").strip()
         self._use_cache = bool(config.get("use_cache", True))
         self._prefer_exact_match = bool(config.get("prefer_exact_match", True))
+        self._hanime_cookie = str(config.get("hanime_cookie", "") or "").strip()
+        self._hanime_use_proxy = bool(config.get("hanime_use_proxy", True))
+        self._hanime_proxy = str(config.get("hanime_proxy", "") or "").strip()
 
     def get_state(self) -> bool:
         """
@@ -119,6 +168,13 @@ class HuanLeHuiju(_PluginBase):
                 "methods": ["GET"],
                 "summary": "查询融合 metadata",
                 "description": "按标题或 Bangumi ID 查询 metadata，并可选保存为详情页预览",
+            },
+            {
+                "path": "/query_hanime",
+                "endpoint": self.query_hanime,
+                "methods": ["GET"],
+                "summary": "查询 Hanime 条目",
+                "description": "按 Hanime watch ID 或链接解析标题、简介、标签等信息",
             },
         ]
 
@@ -235,11 +291,81 @@ class HuanLeHuiju(_PluginBase):
                         ],
                     },
                     {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "preview_hanime_id",
+                                            "label": "预览 Hanime ID",
+                                            "hint": "对应 https://hanime1.me/watch?v=ID 中的 ID",
+                                            "persistent-hint": True,
+                                            "clearable": True,
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "hanime_cookie",
+                                            "label": "Hanime Cookie（可选）",
+                                            "hint": "如触发安全验证（403）可从浏览器复制 cf_clearance 等",
+                                            "persistent-hint": True,
+                                            "clearable": True,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "hanime_use_proxy",
+                                            "label": "Hanime 使用全局代理",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 8},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "hanime_proxy",
+                                            "label": "Hanime 自定义代理（可选）",
+                                            "placeholder": "http://127.0.0.1:7890",
+                                            "clearable": True,
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
                         "component": "VAlert",
                         "props": {
                             "type": "info",
                             "variant": "tonal",
-                            "text": "当前版本已接入 Bangumi 全局识别与搜索能力，并保留 metadata 预览页，后续可扩展 TMDB、豆瓣等来源",
+                            "text": "当前版本支持 Bangumi 全局识别与搜索，并新增 Hanime 条目解析能力，可用于预览融合效果",
                         },
                     },
                 ],
@@ -249,8 +375,12 @@ class HuanLeHuiju(_PluginBase):
             "authorization": "",
             "preview_title": "",
             "preview_bangumi_id": "",
+            "preview_hanime_id": "",
             "use_cache": True,
             "prefer_exact_match": True,
+            "hanime_cookie": "",
+            "hanime_use_proxy": True,
+            "hanime_proxy": "",
         }
 
     def get_page(self) -> List[dict]:
@@ -309,6 +439,12 @@ class HuanLeHuiju(_PluginBase):
                             },
                             {
                                 "component": "div",
+                                "text": (
+                                    f"预览 Hanime ID：{self._preview_hanime_id or '未配置'}"
+                                ),
+                            },
+                            {
+                                "component": "div",
                                 "text": f"最近刷新：{updated_at}",
                             },
                         ],
@@ -357,7 +493,7 @@ class HuanLeHuiju(_PluginBase):
                         "class": "mt-3",
                         "type": "warning",
                         "variant": "tonal",
-                        "text": "暂无预览数据，请先在插件配置中填写标题或 Bangumi ID，然后点击刷新预览",
+                        "text": "暂无预览数据，请先在插件配置中填写标题、Bangumi ID 或 Hanime ID，然后点击刷新预览",
                     },
                 }
             )
@@ -386,7 +522,11 @@ class HuanLeHuiju(_PluginBase):
                 "content": [
                     {
                         "component": "div",
-                        "text": f"查询条件：标题={query.get('title') or '未填写'} / Bangumi ID={query.get('bangumi_id') or '未填写'}",
+                        "text": (
+                            f"查询条件：标题={query.get('title') or '未填写'}"
+                            f" / Bangumi ID={query.get('bangumi_id') or '未填写'}"
+                            f" / Hanime ID={query.get('hanime_id') or '未填写'}"
+                        ),
                     },
                     {
                         "component": "div",
@@ -426,6 +566,10 @@ class HuanLeHuiju(_PluginBase):
                     },
                     {
                         "component": "div",
+                        "text": f"Hanime ID：{ids.get('hanime') or '暂无'}",
+                    },
+                    {
+                        "component": "div",
                         "text": f"数据源：{', '.join(source_items) if source_items else 'Bangumi'}",
                     },
                     {"component": "div", "text": f"简介：{summary}"},
@@ -462,6 +606,189 @@ class HuanLeHuiju(_PluginBase):
         if self._authorization:
             headers["Authorization"] = self._authorization
         return headers
+
+    def _build_hanime_headers(self) -> Dict[str, str]:
+        """
+        生成 Hanime 请求头
+
+        :return Dict: 请求头
+        """
+        headers = dict(self._hanime_headers)
+        if self._hanime_cookie:
+            headers["Cookie"] = self._hanime_cookie
+        return headers
+
+    def _build_hanime_proxies(self) -> Optional[Dict[str, str]]:
+        """
+        生成 Hanime 代理配置
+
+        :return Dict: 代理配置
+        """
+        if self._hanime_proxy:
+            return {"http": self._hanime_proxy, "https": self._hanime_proxy}
+        if not self._hanime_use_proxy:
+            return None
+        return settings.PROXY if getattr(settings, "PROXY", None) else None
+
+    @classmethod
+    def _strip_hanime_html(cls, text: str) -> str:
+        """
+        清理 Hanime HTML 文本
+
+        :param text (str): 原始 HTML 文本
+
+        :return str: 清理后的纯文本
+        """
+        return re.sub(r"\s+", " ", unescape(cls._hanime_strip_tag_pattern.sub("", text))).strip()
+
+    @staticmethod
+    def _extract_hanime_watch_id(value: Optional[str]) -> str:
+        """
+        提取 Hanime watch ID
+
+        :param value (str): watch ID 或链接
+
+        :return str: watch ID
+        """
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        if raw.isdigit():
+            return raw
+        try:
+            parsed = urlparse(raw)
+            watch_ids = parse_qs(parsed.query).get("v", [])
+            if watch_ids and str(watch_ids[0]).isdigit():
+                return str(watch_ids[0])
+        except Exception:
+            return ""
+        return ""
+
+    @cached(region="huanlehuiju_hanime_watch", ttl=86400, skip_none=True)
+    def _request_hanime_watch(self, watch_id: str) -> Optional[str]:
+        """
+        请求 Hanime watch 详情页
+
+        :param watch_id (str): watch ID
+
+        :return str: HTML
+        """
+        request_url = f"{self.HANIME_BASE_URL}/watch?v={watch_id}"
+        response = RequestUtils(
+            headers=self._build_hanime_headers(),
+            proxies=self._build_hanime_proxies(),
+        ).get_res(request_url)
+        if response is None or not response.ok:
+            return None
+        return response.text
+
+    def _parse_hanime_watch(self, watch_id: str, html: str) -> Optional[Dict[str, Any]]:
+        """
+        解析 Hanime watch 详情
+
+        :param watch_id (str): watch ID
+        :param html (str): HTML 内容
+
+        :return Dict: 解析结果
+        """
+        if not html:
+            return None
+
+        title_match = self._hanime_title_pattern.search(html)
+        title = (
+            self._strip_hanime_html(title_match.group("title"))
+            if title_match
+            else ""
+        )
+
+        series_match = self._hanime_series_pattern.search(html)
+        series = (
+            self._strip_hanime_html(series_match.group("series"))
+            if series_match
+            else ""
+        )
+
+        desc_match = self._hanime_desc_pattern.search(html)
+        description = (
+            self._strip_hanime_html(desc_match.group("desc"))
+            if desc_match
+            else ""
+        )
+
+        date_match = self._hanime_date_pattern.search(html)
+        date_text = date_match.group("date") if date_match else ""
+
+        views_match = self._hanime_views_pattern.search(html)
+        views_text = views_match.group("views") if views_match else ""
+
+        og_image_match = self._hanime_og_image_pattern.search(html)
+        poster = og_image_match.group("src") if og_image_match else ""
+
+        tags: List[str] = []
+        for match in self._hanime_tag_pattern.finditer(html):
+            tag_text = self._strip_hanime_html(match.group("tag"))
+            tag_text = tag_text.lstrip("#").strip()
+            tag_text = re.sub(r"\(\s*\d+\s*\)$", "", tag_text).strip()
+            if tag_text and tag_text not in tags:
+                tags.append(tag_text)
+
+        return {
+            "id": watch_id,
+            "url": f"{self.HANIME_BASE_URL}/watch?v={watch_id}",
+            "title": title,
+            "series": series,
+            "description": description,
+            "date": date_text,
+            "views": views_text,
+            "poster": poster,
+            "tags": tags,
+        }
+
+    def _build_hanime_metadata(self, hanime: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        构造 Hanime 归一化 metadata
+
+        :param hanime (Dict): Hanime 解析结果
+
+        :return Dict: 归一化结果
+        """
+        date_text = str(hanime.get("date") or "").strip()
+        subtitle_parts = []
+        if hanime.get("series"):
+            subtitle_parts.append(str(hanime.get("series")))
+        if date_text:
+            subtitle_parts.append(date_text)
+        if hanime.get("views"):
+            subtitle_parts.append(f"播放 {hanime.get('views')}")
+
+        title = str(hanime.get("title") or "").strip()
+        series = str(hanime.get("series") or "").strip()
+        aliases: List[str] = []
+        if title:
+            aliases.append(title)
+        if series and series not in aliases:
+            aliases.append(series)
+
+        tags = hanime.get("tags") or []
+        genres = [t for t in tags if isinstance(t, str) and t][:12]
+
+        return {
+            "title": series or title,
+            "subtitle": " / ".join(subtitle_parts) if subtitle_parts else "Hanime",
+            "original_title": title,
+            "date": date_text,
+            "year": date_text.split("-", 1)[0] if date_text else "",
+            "rating": "",
+            "rank": "",
+            "summary": str(hanime.get("description") or "").strip(),
+            "poster": str(hanime.get("poster") or "").strip(),
+            "genres": genres,
+            "aliases": aliases,
+            "ids": {
+                "hanime": hanime.get("id"),
+            },
+            "sources": ["Hanime"],
+        }
 
     @staticmethod
     def _season_text(season: Optional[int]) -> Optional[str]:
@@ -776,6 +1103,81 @@ class HuanLeHuiju(_PluginBase):
             "sources": ["Bangumi"],
         }
 
+    @staticmethod
+    def _merge_unique(items: List[str]) -> List[str]:
+        """
+        合并去重列表
+
+        :param items (List): 原始列表
+
+        :return List: 去重结果
+        """
+        merged: List[str] = []
+        for item in items:
+            if not item:
+                continue
+            if item not in merged:
+                merged.append(item)
+        return merged
+
+    def _merge_metadata(
+        self,
+        bangumi_meta: Optional[Dict[str, Any]] = None,
+        hanime_meta: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        融合 metadata
+
+        :param bangumi_meta (Dict): Bangumi metadata
+        :param hanime_meta (Dict): Hanime metadata
+
+        :return Dict: 融合结果
+        """
+        base = bangumi_meta or hanime_meta or {}
+        merged = dict(base)
+
+        ids: Dict[str, Any] = {}
+        sources: List[str] = []
+        aliases: List[str] = []
+        genres: List[str] = []
+
+        for meta in [bangumi_meta, hanime_meta]:
+            if not meta:
+                continue
+            ids.update(meta.get("ids") or {})
+            sources.extend(meta.get("sources") or [])
+            aliases.extend(meta.get("aliases") or [])
+            genres.extend(meta.get("genres") or [])
+
+        merged["ids"] = ids
+        merged["sources"] = self._merge_unique(sources)
+        merged["aliases"] = self._merge_unique(aliases)
+        merged["genres"] = self._merge_unique(genres)
+
+        poster = ""
+        for meta in [bangumi_meta, hanime_meta]:
+            if not meta:
+                continue
+            poster = poster or str(meta.get("poster") or "").strip()
+        merged["poster"] = poster
+
+        summary_parts: List[str] = []
+        for meta in [bangumi_meta, hanime_meta]:
+            if not meta:
+                continue
+            text = str(meta.get("summary") or "").strip()
+            if text and text not in summary_parts:
+                summary_parts.append(text)
+        merged["summary"] = "\n\n".join(summary_parts) if summary_parts else ""
+
+        if not merged.get("title"):
+            merged["title"] = (
+                str((bangumi_meta or {}).get("title") or "").strip()
+                or str((hanime_meta or {}).get("title") or "").strip()
+            )
+
+        return merged
+
     def _resolve_subject(
         self,
         title: Optional[str] = None,
@@ -880,6 +1282,7 @@ class HuanLeHuiju(_PluginBase):
         self,
         title: Optional[str] = None,
         bangumi_id: Optional[str] = None,
+        hanime_id: Optional[str] = None,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
         构造预览结果
@@ -889,18 +1292,44 @@ class HuanLeHuiju(_PluginBase):
 
         :return Tuple: 预览结果与错误信息
         """
+        subject: Optional[dict] = None
+        hanime: Optional[Dict[str, Any]] = None
+
+        source_count = 0
+        bangumi_meta: Optional[Dict[str, Any]] = None
+        hanime_meta: Optional[Dict[str, Any]] = None
+
+        clean_hanime_id = self._extract_hanime_watch_id(hanime_id)
+        if clean_hanime_id:
+            html = self._request_hanime_watch(clean_hanime_id)
+            if html:
+                hanime = self._parse_hanime_watch(clean_hanime_id, html)
+                if hanime:
+                    source_count += 1
+                    hanime_meta = self._build_hanime_metadata(hanime)
+
         subject, error = self._resolve_subject(title=title, bangumi_id=bangumi_id)
-        if error or not subject:
+        if subject:
+            source_count += 1
+            bangumi_meta = self._build_metadata(subject)
+        elif not hanime_meta:
             return None, error
+
+        merged_metadata = self._merge_metadata(bangumi_meta=bangumi_meta, hanime_meta=hanime_meta)
 
         payload = {
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "query": {
                 "title": str(title or "").strip(),
                 "bangumi_id": str(bangumi_id or "").strip(),
+                "hanime_id": str(hanime_id or "").strip(),
             },
-            "source_count": 1,
-            "metadata": self._build_metadata(subject),
+            "source_count": source_count,
+            "metadata": merged_metadata,
+            "sources": {
+                "bangumi": bangumi_meta,
+                "hanime": hanime_meta,
+            },
         }
         return payload, None
 
@@ -916,6 +1345,7 @@ class HuanLeHuiju(_PluginBase):
         payload, error = self._build_preview_payload(
             title=self._preview_title,
             bangumi_id=self._preview_bangumi_id,
+            hanime_id=self._preview_hanime_id,
         )
         if error or not payload:
             self.save_data("last_error", error or "未知错误")
@@ -929,6 +1359,7 @@ class HuanLeHuiju(_PluginBase):
         self,
         title: str = "",
         bangumi_id: str = "",
+        hanime_id: str = "",
         save_preview: bool = False,
     ) -> Dict[str, Any]:
         """
@@ -946,6 +1377,7 @@ class HuanLeHuiju(_PluginBase):
         payload, error = self._build_preview_payload(
             title=title or self._preview_title,
             bangumi_id=bangumi_id or self._preview_bangumi_id,
+            hanime_id=hanime_id or self._preview_hanime_id,
         )
         if error or not payload:
             return {"ok": False, "message": error or "查询失败"}
@@ -954,6 +1386,37 @@ class HuanLeHuiju(_PluginBase):
             self.save_data("last_preview", payload)
             self.del_data("last_error")
         return {"ok": True, "message": "查询成功", "data": payload}
+
+    def query_hanime(self, id: str = "", url: str = "") -> Dict[str, Any]:
+        """
+        查询 Hanime 条目
+
+        :param id (str): watch ID
+        :param url (str): watch 链接
+
+        :return Dict: 查询结果
+        """
+        if not self._enabled:
+            return {"ok": False, "message": "插件未启用"}
+
+        watch_id = self._extract_hanime_watch_id(id) or self._extract_hanime_watch_id(url)
+        if not watch_id:
+            return {"ok": False, "message": "缺少有效的 Hanime ID 或链接"}
+
+        html = self._request_hanime_watch(watch_id)
+        if not html:
+            return {"ok": False, "message": "获取 Hanime 页面失败，可能触发安全验证或网络不可达"}
+
+        try:
+            parsed = self._parse_hanime_watch(watch_id, html)
+            if not parsed:
+                return {"ok": False, "message": "解析 Hanime 页面失败"}
+            meta = self._build_hanime_metadata(parsed)
+        except Exception as err:
+            logger.error("欢乐汇聚解析 Hanime 失败: %s", err, exc_info=True)
+            return {"ok": False, "message": "解析 Hanime 页面失败"}
+
+        return {"ok": True, "message": "ok", "data": {"watch": parsed, "metadata": meta}}
 
     def _search_medias(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
         """
