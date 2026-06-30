@@ -132,7 +132,7 @@ class JavbusDiscover(_PluginBase):
     plugin_name = "JAVBUS探索"
     plugin_desc = "让探索支持 JavBus 的数据浏览"
     plugin_icon = "https://www.javbus.com/favicon.ico"
-    plugin_version = "1.2.2"
+    plugin_version = "1.2.3"
     plugin_author = "TRAE"
     author_url = "https://trae.ai"
     plugin_config_prefix = "javbusdiscover_"
@@ -1005,15 +1005,7 @@ class JavbusDiscover(_PluginBase):
         original_title = str(detail.get("original_title") or "").strip()
         poster = str(detail.get("poster") or "").strip()
         release = str(detail.get("release") or "").strip()
-        runtime = str(detail.get("runtime") or "").strip()
-        director = str(detail.get("director") or "").strip()
-        studio = str(detail.get("studio") or "").strip()
-        label = str(detail.get("label") or "").strip()
         overview = str(detail.get("overview") or "").strip()
-        genres = detail.get("genres") or []
-        actors = detail.get("actors") or []
-        magnets = detail.get("magnets") or []
-        related = detail.get("related") or []
 
         title = title_text or self._build_title(code=code, title=original_title)
         if code:
@@ -1025,26 +1017,8 @@ class JavbusDiscover(_PluginBase):
             setattr(info, "original_title", original_title)
         if poster:
             setattr(info, "poster_path", poster)
-        if release:
-            setattr(info, "release_date", release)
-        if runtime:
-            setattr(info, "runtime", runtime)
-        if director:
-            setattr(info, "director", director)
-        if studio:
-            setattr(info, "studio", studio)
-        if label:
-            setattr(info, "label", label)
         if overview:
             setattr(info, "overview", overview)
-        if genres:
-            setattr(info, "genres", genres)
-        if actors:
-            setattr(info, "actors", actors)
-        if magnets:
-            setattr(info, "magnets", magnets)
-        if related:
-            setattr(info, "related_items", related)
         year = self._extract_year(release)
         if year:
             setattr(info, "year", year)
