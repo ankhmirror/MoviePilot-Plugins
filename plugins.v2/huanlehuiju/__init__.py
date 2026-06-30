@@ -23,7 +23,7 @@ class HuanLeHuiju(_PluginBase):
     plugin_name = "欢乐汇聚"
     plugin_desc = "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi"
     plugin_order = 99
-    plugin_version = "1.1.1"
+    plugin_version = "1.1.2"
     plugin_author = "踏马奔腾"
     author_url = "https://trae.ai"
     plugin_icon = (
@@ -325,7 +325,7 @@ class HuanLeHuiju(_PluginBase):
                                 "text": "刷新预览",
                                 "events": {
                                     "click": {
-                                        "api": "plugin/HuanLeHuiju/refresh_preview",
+                                        "api": f"plugin/HuanLeHuiju/refresh_preview?apikey={settings.API_TOKEN}",
                                         "method": "get",
                                     }
                                 },

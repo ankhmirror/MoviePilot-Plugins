@@ -30,14 +30,15 @@
     "name": "欢乐汇聚",
     "description": "MoviePilot 全局识别与 metadata 融合插件，第一版接入 Bangumi",
     "labels": "识别数据源,媒体搜索,Metadata,Bangumi",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/bangumi.png",
     "author": "踏马奔腾",
     "level": 1,
     "history": {
       "v1.0.0": "首个版本，支持 Bangumi 单源 metadata 预览、缓存与详情页展示",
       "v1.1.0": "增加全局识别、全局搜索和全局刮削接口，可用于系统识别数据源与媒体搜索数据源",
-      "v1.1.1": "修复插件页刷新预览接口 401 未授权问题"
+      "v1.1.1": "修复插件页刷新预览接口 401 未授权问题",
+      "v1.1.2": "刷新预览按钮增加 apikey 参数，兼容插件 API 全局鉴权要求"
     }
   }
 }
