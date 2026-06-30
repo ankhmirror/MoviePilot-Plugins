@@ -70,12 +70,56 @@ DETAIL_TITLE_PATTERN = re.compile(
     r"<title>\s*(?P<code>[A-Za-z0-9\-]+)\s+(?P<title>.*?)\s+-\s+JavBus</title>",
     re.IGNORECASE | re.DOTALL,
 )
+DETAIL_H3_PATTERN = re.compile(
+    r"<h3>\s*(?P<title>.*?)\s*</h3>",
+    re.IGNORECASE | re.DOTALL,
+)
 DETAIL_POSTER_PATTERN = re.compile(
-    r'<a[^>]*class="[^"]*\bbigImage\b[^"]*"[^>]*href="(?P<href>[^"]+)"',
+    r'<img[^>]*src="(?P<src>/pics/cover/[^"]+)"[^>]*title="(?P<title>[^"]*)"',
+    re.IGNORECASE | re.DOTALL,
+)
+DETAIL_CODE_PATTERN = re.compile(
+    r'<span class="header">識別碼:</span>\s*<span[^>]*>(?P<code>[^<]+)</span>',
     re.IGNORECASE | re.DOTALL,
 )
 DETAIL_RELEASE_PATTERN = re.compile(
     r'<p><span class="header">[^<]*(?:Release Date|發行日期|推出日期)[^<]*</span>\s*(?P<date>\d{4}-\d{2}-\d{2})</p>',
+    re.IGNORECASE | re.DOTALL,
+)
+DETAIL_RUNTIME_PATTERN = re.compile(
+    r'<span class="header">長度:</span>\s*(?P<runtime>[^<]+)</p>',
+    re.IGNORECASE | re.DOTALL,
+)
+DETAIL_DIRECTOR_PATTERN = re.compile(
+    r'<span class="header">導演:</span>\s*<a[^>]*>(?P<director>.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+DETAIL_STUDIO_PATTERN = re.compile(
+    r'<span class="header">製作商:</span>\s*<a[^>]*>(?P<studio>.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+DETAIL_LABEL_PATTERN = re.compile(
+    r'<span class="header">發行商:</span>\s*<a[^>]*>(?P<label>.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+DETAIL_GENRE_PATTERN = re.compile(
+    r'<span class="genre">\s*<label>.*?<a[^>]*>(?P<genre>.*?)</a>.*?</label>\s*</span>',
+    re.IGNORECASE | re.DOTALL,
+)
+DETAIL_ACTOR_PATTERN = re.compile(
+    r'<div class="star-name">\s*<a[^>]*title="(?P<actor>[^"]+)"',
+    re.IGNORECASE | re.DOTALL,
+)
+MAGNET_ROW_PATTERN = re.compile(
+    r"<tr[^>]*>.*?"
+    r'href="(?P<link>magnet:[^"]+)".*?>\s*(?P<name>.*?)</a>(?P<extra>.*?)</td>.*?'
+    r"<td[^>]*>.*?<a[^>]*>\s*(?P<size>.*?)\s*</a>.*?</td>.*?"
+    r"<td[^>]*>.*?<a[^>]*>\s*(?P<date>\d{4}-\d{2}-\d{2})\s*</a>.*?</td>.*?"
+    r"</tr>",
+    re.IGNORECASE | re.DOTALL,
+)
+MAGNET_TAG_PATTERN = re.compile(
+    r'<a[^>]*class="[^"]*\bbtn\b[^"]*"[^>]*>(?P<tag>.*?)</a>',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -88,7 +132,7 @@ class JavbusDiscover(_PluginBase):
     plugin_name = "JAVBUS探索"
     plugin_desc = "让探索支持 JavBus 的数据浏览"
     plugin_icon = "https://www.javbus.com/favicon.ico"
-    plugin_version = "1.1.2"
+    plugin_version = "1.2.0"
     plugin_author = "TRAE"
     author_url = "https://trae.ai"
     plugin_config_prefix = "javbusdiscover_"
@@ -136,6 +180,8 @@ class JavbusDiscover(_PluginBase):
         return {
             "search_medias": self._search_medias,
             "async_search_medias": self._async_search_medias,
+            "scrape_metadata": self._scrape_metadata,
+            "async_scrape_metadata": self._async_scrape_metadata,
             "recognize_media": self._recognize_media_by_id,
             "async_recognize_media": self._async_recognize_media_by_id,
         }
@@ -486,6 +532,10 @@ class JavbusDiscover(_PluginBase):
             media_id=media_id,
             poster_path=poster_path,
         )
+        setattr(media_info, "detail_url", detail_url)
+        setattr(media_info, "homepage", detail_url)
+        if release_date:
+            setattr(media_info, "release_date", release_date)
 
         year = self._extract_year(release_date)
         if year:
@@ -638,6 +688,9 @@ class JavbusDiscover(_PluginBase):
         poster = str(getattr(item, "poster_path", "") or "").strip()
         media_id = str(getattr(item, "media_id", "") or "").strip()
         year = str(getattr(item, "year", "") or "").strip()
+        detail_url = str(getattr(item, "detail_url", "") or "").strip()
+        homepage = str(getattr(item, "homepage", "") or "").strip()
+        release_date = str(getattr(item, "release_date", "") or "").strip()
 
         if media_id:
             setattr(info, "mediaid_prefix", "javbus")
@@ -649,6 +702,12 @@ class JavbusDiscover(_PluginBase):
             setattr(info, "poster_path", poster)
         if year:
             setattr(info, "year", year)
+        if detail_url:
+            setattr(info, "detail_url", detail_url)
+        if homepage:
+            setattr(info, "homepage", homepage)
+        if release_date:
+            setattr(info, "release_date", release_date)
         setattr(info, "type", "电影")
         return info
 
@@ -718,39 +777,268 @@ class JavbusDiscover(_PluginBase):
             logger.warning("JavBus 图片代理异常: `%s`, %s", image_url, err)
             return Response(status_code=404, content=b"")
 
-    def _parse_detail(self, html: str) -> Optional[Dict[str, str]]:
+    def _extract_related_items(self, html: str) -> List[Dict[str, str]]:
+        """
+        提取相关推荐条目
+
+        :param html (str): 详情页 HTML
+
+        :return List: 推荐条目列表
+        """
+        related_items: List[Dict[str, str]] = []
+        marker = 'id="related-waterfall"'
+        start = (html or "").find(marker)
+        if start < 0:
+            return related_items
+
+        related_html = html[start:]
+        seen_ids: Set[str] = set()
+        for match in MOVIE_BOX_PATTERN.finditer(related_html):
+            body = match.group("body")
+            href = urljoin(BASE_URL, self._clean_attr_value(match.group("href")))
+            media_id = self._extract_media_id(href)
+            if not media_id or media_id in seen_ids:
+                continue
+
+            title_text = ""
+            img_title_match = IMG_TITLE_PATTERN.search(body or "")
+            if img_title_match:
+                title_text = self._strip_html(img_title_match.group("title"))
+            else:
+                span_match = TITLE_SPAN_PATTERN.search(body or "")
+                if span_match:
+                    title_text = self._strip_html(span_match.group("title"))
+
+            img_src_match = IMG_SRC_PATTERN.search(body or "")
+            poster = ""
+            if img_src_match:
+                poster = self._build_cached_image_url(
+                    urljoin(BASE_URL, self._clean_attr_value(img_src_match.group("src")))
+                )
+
+            if not title_text:
+                continue
+
+            seen_ids.add(media_id)
+            related_items.append(
+                {
+                    "id": media_id,
+                    "title": title_text,
+                    "url": href,
+                    "poster": poster,
+                }
+            )
+        return related_items[:12]
+
+    def _extract_magnets(self, html: str) -> List[Dict[str, str]]:
+        """
+        提取磁力信息
+
+        :param html (str): 详情页 HTML
+
+        :return List: 磁力列表
+        """
+        magnets: List[Dict[str, str]] = []
+        for match in MAGNET_ROW_PATTERN.finditer(html or ""):
+            link = unescape(self._clean_attr_value(match.group("link")))
+            name = self._strip_html(match.group("name"))
+            size = self._strip_html(match.group("size"))
+            date = self._strip_html(match.group("date"))
+            extra = match.group("extra") or ""
+            tags: List[str] = []
+            for tag_match in MAGNET_TAG_PATTERN.finditer(extra):
+                tag_text = self._strip_html(tag_match.group("tag"))
+                if tag_text and tag_text not in tags:
+                    tags.append(tag_text)
+
+            if not link or not name:
+                continue
+
+            magnets.append(
+                {
+                    "name": name,
+                    "url": link,
+                    "size": size,
+                    "date": date,
+                    "tags": " / ".join(tags),
+                }
+            )
+        return magnets
+
+    def _build_detail_overview(self, detail: Dict[str, Any]) -> str:
+        """
+        构造详情摘要
+
+        :param detail (Dict): 详情信息
+
+        :return str: 摘要文本
+        """
+        overview_parts: List[str] = []
+        release = str(detail.get("release") or "").strip()
+        runtime = str(detail.get("runtime") or "").strip()
+        director = str(detail.get("director") or "").strip()
+        studio = str(detail.get("studio") or "").strip()
+        label = str(detail.get("label") or "").strip()
+        actors = detail.get("actors") or []
+        genres = detail.get("genres") or []
+        magnets = detail.get("magnets") or []
+        related_items = detail.get("related") or []
+
+        if release:
+            overview_parts.append(f"发行日期 {release}")
+        if runtime:
+            overview_parts.append(f"时长 {runtime}")
+        if director:
+            overview_parts.append(f"导演 {director}")
+        if studio:
+            overview_parts.append(f"制作商 {studio}")
+        if label:
+            overview_parts.append(f"发行商 {label}")
+        if actors:
+            overview_parts.append(f"演员 {' / '.join(actors[:5])}")
+        if genres:
+            overview_parts.append(f"分类 {' / '.join(genres[:8])}")
+        if magnets:
+            overview_parts.append(f"磁力 {len(magnets)} 条")
+        if related_items:
+            overview_parts.append(f"推荐 {len(related_items)} 条")
+        return " | ".join(overview_parts)
+
+    def _build_detail_candidates(
+        self, code: Optional[str] = None, detail_url: Optional[str] = None
+    ) -> List[str]:
+        """
+        构造详情页候选地址
+
+        :param code (str): 番号
+        :param detail_url (str): 详情地址
+
+        :return List: 候选地址列表
+        """
+        candidates: List[str] = []
+        if detail_url:
+            clean_url = urljoin(BASE_URL, self._clean_attr_value(detail_url))
+            if clean_url:
+                candidates.append(clean_url)
+
+        normalized = self._normalize_jav_code(code or "")
+        if not normalized and detail_url:
+            normalized = self._normalize_jav_code(detail_url)
+
+        if normalized:
+            ordered = [
+                f"{BASE_URL}/{normalized}",
+                f"{UNCENSORED_URL}/{normalized}",
+            ]
+            if self._uncensored_site:
+                ordered = [ordered[1], ordered[0]]
+            for url in ordered:
+                if url not in candidates:
+                    candidates.append(url)
+        return candidates
+
+    def _extract_detail_url(self, meta: MetaBase = None, **kwargs) -> Optional[str]:
+        """
+        从参数中提取详情地址
+
+        :param meta (MetaBase): 媒体元数据
+        :param kwargs (dict): 额外参数
+
+        :return str: 详情地址
+        """
+        candidates = [
+            kwargs.get("detail_url"),
+            kwargs.get("homepage"),
+            kwargs.get("url"),
+        ]
+        if meta is not None:
+            candidates.extend(
+                [
+                    getattr(meta, "detail_url", None),
+                    getattr(meta, "homepage", None),
+                    getattr(meta, "url", None),
+                ]
+            )
+
+        for value in candidates:
+            text = str(value or "").strip()
+            if text and "javbus.com" in text:
+                return text
+        return None
+
+    def _parse_detail(self, html: str, detail_url: str = "") -> Optional[Dict[str, Any]]:
         """
         解析详情页
 
         :param html (str): HTML 内容
+        :param detail_url (str): 详情页地址
 
         :return Dict: 解析结果
         """
         if not html:
             return None
-        title_match = DETAIL_TITLE_PATTERN.search(html)
-        code = (
-            self._normalize_jav_code(title_match.group("code")) if title_match else None
-        )
-        title = self._strip_html(title_match.group("title")) if title_match else ""
+        code_match = DETAIL_CODE_PATTERN.search(html)
+        code = self._normalize_jav_code(code_match.group("code")) if code_match else None
+
+        title_match = DETAIL_H3_PATTERN.search(html) or DETAIL_TITLE_PATTERN.search(html)
+        title_raw = title_match.group("title") if title_match else ""
+        title_text = self._strip_html(title_raw)
+        title = self._build_title(code=code, title=title_text)
 
         poster_match = DETAIL_POSTER_PATTERN.search(html)
         poster = ""
         if poster_match:
-            poster_url = urljoin(BASE_URL, self._clean_attr_value(poster_match.group("href")))
+            poster_url = urljoin(BASE_URL, self._clean_attr_value(poster_match.group("src")))
             poster = self._build_cached_image_url(poster_url)
 
         release_match = DETAIL_RELEASE_PATTERN.search(html)
         release = release_match.group("date").strip() if release_match else ""
+        runtime_match = DETAIL_RUNTIME_PATTERN.search(html)
+        runtime = self._strip_html(runtime_match.group("runtime")) if runtime_match else ""
+        director_match = DETAIL_DIRECTOR_PATTERN.search(html)
+        director = (
+            self._strip_html(director_match.group("director")) if director_match else ""
+        )
+        studio_match = DETAIL_STUDIO_PATTERN.search(html)
+        studio = self._strip_html(studio_match.group("studio")) if studio_match else ""
+        label_match = DETAIL_LABEL_PATTERN.search(html)
+        label = self._strip_html(label_match.group("label")) if label_match else ""
 
-        return {
+        genres: List[str] = []
+        for match in DETAIL_GENRE_PATTERN.finditer(html):
+            genre = self._strip_html(match.group("genre"))
+            if genre and genre not in genres and genre != "多選提交":
+                genres.append(genre)
+
+        actors: List[str] = []
+        for match in DETAIL_ACTOR_PATTERN.finditer(html):
+            actor = self._strip_html(match.group("actor"))
+            if actor and actor not in actors:
+                actors.append(actor)
+
+        magnets = self._extract_magnets(html)
+        related = self._extract_related_items(html)
+
+        detail = {
             "code": code or "",
             "title": title,
+            "original_title": title_text,
             "poster": poster,
             "release": release,
+            "runtime": runtime,
+            "director": director,
+            "studio": studio,
+            "label": label,
+            "genres": genres,
+            "actors": actors,
+            "magnets": magnets,
+            "related": related,
+            "detail_url": detail_url,
         }
+        detail["overview"] = self._build_detail_overview(detail)
+        return detail
 
-    def _detail_to_mediainfo(self, detail: Dict[str, str]) -> Optional[MediaInfo]:
+    def _detail_to_mediainfo(self, detail: Dict[str, Any]) -> Optional[MediaInfo]:
         """
         将详情转换为 MediaInfo
 
@@ -767,49 +1055,79 @@ class JavbusDiscover(_PluginBase):
 
         code = str(detail.get("code") or "").strip()
         title_text = str(detail.get("title") or "").strip()
+        original_title = str(detail.get("original_title") or "").strip()
         poster = str(detail.get("poster") or "").strip()
         release = str(detail.get("release") or "").strip()
+        runtime = str(detail.get("runtime") or "").strip()
+        director = str(detail.get("director") or "").strip()
+        studio = str(detail.get("studio") or "").strip()
+        label = str(detail.get("label") or "").strip()
+        overview = str(detail.get("overview") or "").strip()
+        detail_url = str(detail.get("detail_url") or "").strip()
+        genres = detail.get("genres") or []
+        actors = detail.get("actors") or []
+        magnets = detail.get("magnets") or []
+        related = detail.get("related") or []
 
-        title = self._build_title(code=code, title=title_text)
+        title = title_text or self._build_title(code=code, title=original_title)
         if code:
             setattr(info, "mediaid_prefix", "javbus")
             setattr(info, "media_id", code)
         if title:
             setattr(info, "title", title)
-            setattr(info, "original_title", title)
+        if original_title:
+            setattr(info, "original_title", original_title)
         if poster:
             setattr(info, "poster_path", poster)
         if release:
             setattr(info, "release_date", release)
+        if runtime:
+            setattr(info, "runtime", runtime)
+        if director:
+            setattr(info, "director", director)
+        if studio:
+            setattr(info, "studio", studio)
+        if label:
+            setattr(info, "label", label)
+        if overview:
+            setattr(info, "overview", overview)
+        if detail_url:
+            setattr(info, "detail_url", detail_url)
+            setattr(info, "homepage", detail_url)
+        if genres:
+            setattr(info, "genres", genres)
+        if actors:
+            setattr(info, "actors", actors)
+        if magnets:
+            setattr(info, "magnets", magnets)
+        if related:
+            setattr(info, "related_items", related)
         year = self._extract_year(release)
         if year:
             setattr(info, "year", year)
+            setattr(info, "title_year", f"{title or original_title} ({year})")
         setattr(info, "type", "电影")
         return info
 
-    def _fetch_detail(self, code: str) -> Optional[MediaInfo]:
+    def _fetch_detail(
+        self, code: str = None, detail_url: str = None
+    ) -> Optional[MediaInfo]:
         """
         获取番号详情
 
         :param code (str): 番号
+        :param detail_url (str): 详情页地址
 
         :return MediaInfo: 媒体信息
         """
-        normalized = self._normalize_jav_code(code) or str(code or "").strip()
-        if not normalized:
+        candidates = self._build_detail_candidates(code=code, detail_url=detail_url)
+        if not candidates:
             return None
-
-        candidates = [
-            f"{BASE_URL}/{normalized}",
-            f"{UNCENSORED_URL}/{normalized}",
-        ]
-        if self._uncensored_site:
-            candidates = [candidates[1], candidates[0]]
 
         for url in candidates:
             try:
                 html = self._request_html(url)
-                parsed = self._parse_detail(html)
+                parsed = self._parse_detail(html, detail_url=url)
                 info = self._detail_to_mediainfo(parsed or {})
                 if info and getattr(info, "title", None):
                     return info
@@ -871,7 +1189,8 @@ class JavbusDiscover(_PluginBase):
         query = str(meta.name).strip()
         code = self._normalize_jav_code(query)
         if code:
-            info = self._fetch_detail(code)
+            detail_url = self._extract_detail_url(meta=meta)
+            info = self._fetch_detail(code=code, detail_url=detail_url)
             return [info] if info else []
         return self._search_by_keyword(query)
 
@@ -885,6 +1204,54 @@ class JavbusDiscover(_PluginBase):
         """
         return await asyncio.to_thread(self._search_medias, meta)
 
+    def _scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
+        """
+        全局刮削元数据
+
+        :param meta (MetaBase): 媒体元数据
+
+        :return List: 详情结果
+        """
+        if not self._enabled:
+            return None
+
+        detail_url = self._extract_detail_url(meta=meta)
+        mediaid = getattr(meta, "mediaid", None) if meta else None
+        code = self._normalize_jav_code(str(mediaid or ""))
+        if not code and meta is not None:
+            code = self._normalize_jav_code(str(getattr(meta, "name", "") or ""))
+
+        if code or detail_url:
+            info = self._fetch_detail(code=code, detail_url=detail_url)
+            return [info] if info else []
+
+        medias = self._search_medias(meta) or []
+        details: List[MediaInfo] = []
+        seen_ids: Set[str] = set()
+        for media in medias[:5]:
+            item_code = self._normalize_jav_code(str(getattr(media, "media_id", "") or ""))
+            item_detail_url = str(getattr(media, "detail_url", "") or "").strip()
+            info = self._fetch_detail(code=item_code, detail_url=item_detail_url)
+            if not info:
+                continue
+            item_id = str(getattr(info, "media_id", "") or "").strip()
+            if item_id and item_id in seen_ids:
+                continue
+            if item_id:
+                seen_ids.add(item_id)
+            details.append(info)
+        return details
+
+    async def _async_scrape_metadata(self, meta: MetaBase) -> Optional[List[MediaInfo]]:
+        """
+        异步全局刮削元数据
+
+        :param meta (MetaBase): 媒体元数据
+
+        :return List: 详情结果
+        """
+        return await asyncio.to_thread(self._scrape_metadata, meta)
+
     def _recognize_media_by_id(self, javbusid: str = None, **kwargs) -> Optional[MediaInfo]:
         """
         全局识别媒体
@@ -896,6 +1263,8 @@ class JavbusDiscover(_PluginBase):
         if not self._enabled or not self._recognize_media:
             return None
 
+        meta = kwargs.get("meta")
+        detail_url = self._extract_detail_url(meta=meta, **kwargs)
         candidates: List[str] = []
         if javbusid:
             candidates.append(str(javbusid))
@@ -905,7 +1274,6 @@ class JavbusDiscover(_PluginBase):
         title = kwargs.get("title")
         if title:
             candidates.append(str(title))
-        meta = kwargs.get("meta")
         if meta is not None and getattr(meta, "name", None):
             candidates.append(str(getattr(meta, "name")))
 
@@ -913,7 +1281,9 @@ class JavbusDiscover(_PluginBase):
             code = self._normalize_jav_code(text)
             if not code:
                 continue
-            return self._fetch_detail(code)
+            return self._fetch_detail(code=code, detail_url=detail_url)
+        if detail_url:
+            return self._fetch_detail(detail_url=detail_url)
         return None
 
     async def _async_recognize_media_by_id(
