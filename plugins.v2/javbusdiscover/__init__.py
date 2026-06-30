@@ -34,6 +34,7 @@ HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     "Referer": f"{BASE_URL}/",
 }
+IMAGE_PROXY_PREFIX = "/api/v1/system/cache/image?url="
 
 MOVIE_BOX_PATTERN = re.compile(
     r'<a(?=[^>]*class="[^"]*\bmovie-box\b[^"]*")'
@@ -85,7 +86,7 @@ class JavbusDiscover(_PluginBase):
     plugin_name = "JAVBUS探索"
     plugin_desc = "让探索支持 JavBus 的数据浏览"
     plugin_icon = "https://www.javbus.com/favicon.ico"
-    plugin_version = "1.1.0"
+    plugin_version = "1.1.1"
     plugin_author = "TRAE"
     author_url = "https://trae.ai"
     plugin_config_prefix = "javbusdiscover_"
@@ -325,6 +326,20 @@ class JavbusDiscover(_PluginBase):
             headers["Cookie"] = self._cookie
         return headers
 
+    @staticmethod
+    def _build_cached_image_url(image_url: str) -> str:
+        """
+        构造系统图片缓存地址
+
+        :param image_url (str): 原始图片地址
+
+        :return str: 缓存后的图片地址
+        """
+        clean_url = str(image_url or "").strip()
+        if not clean_url:
+            return ""
+        return f"{IMAGE_PROXY_PREFIX}{quote(clean_url, safe='')}"
+
     def get_page(self) -> List[dict]:
         """
         返回插件静态页面列表
@@ -444,7 +459,8 @@ class JavbusDiscover(_PluginBase):
         if media_id in seen_ids:
             return
 
-        poster_path = urljoin(BASE_URL, self._clean_attr_value(img_src_match.group("src")))
+        poster_url = urljoin(BASE_URL, self._clean_attr_value(img_src_match.group("src")))
+        poster_path = self._build_cached_image_url(poster_url)
         title = self._build_title(code=code, title=title_text)
         if not title or not poster_path:
             return
@@ -505,6 +521,21 @@ class JavbusDiscover(_PluginBase):
             return UNCENSORED_URL
         return BASE_URL
 
+    def _build_list_url(self, category: str = "有码", page: int = 1) -> str:
+        """
+        构造列表页地址
+
+        :param category (str): 类别
+        :param page (int): 页码
+
+        :return str: 列表页地址
+        """
+        base_url = self._category_to_url(category)
+        page_number = int(page or 1)
+        if page_number <= 1:
+            return base_url
+        return f"{base_url}/page/{page_number}"
+
     @cached(region="javbus_discover", ttl=1800, skip_none=True)
     def __request(self, category: str = "有码", page: int = 1) -> str:
         """
@@ -515,10 +546,7 @@ class JavbusDiscover(_PluginBase):
 
         :return str: 列表页 HTML
         """
-        base_url = self._category_to_url(category)
-        request_url = base_url
-        if page and page > 1:
-            request_url = f"{base_url}/{page}"
+        request_url = self._build_list_url(category=category, page=page)
 
         res = RequestUtils(
             headers=self._build_headers(),
@@ -661,11 +689,10 @@ class JavbusDiscover(_PluginBase):
         title = self._strip_html(title_match.group("title")) if title_match else ""
 
         poster_match = DETAIL_POSTER_PATTERN.search(html)
-        poster = (
-            urljoin(BASE_URL, self._clean_attr_value(poster_match.group("href")))
-            if poster_match
-            else ""
-        )
+        poster = ""
+        if poster_match:
+            poster_url = urljoin(BASE_URL, self._clean_attr_value(poster_match.group("href")))
+            poster = self._build_cached_image_url(poster_url)
 
         release_match = DETAIL_RELEASE_PATTERN.search(html)
         release = release_match.group("date").strip() if release_match else ""
