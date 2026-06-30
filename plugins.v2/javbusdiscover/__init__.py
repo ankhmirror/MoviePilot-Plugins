@@ -4,6 +4,8 @@ from html import unescape
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote, urljoin, urlparse
 
+from fastapi import Response
+
 from app import schemas
 from app.core.cache import cached
 from app.core.config import settings
@@ -34,7 +36,7 @@ HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     "Referer": f"{BASE_URL}/",
 }
-IMAGE_PROXY_PREFIX = "/api/v1/system/cache/image?url="
+IMAGE_PROXY_PREFIX = "/api/v1/plugin/JavbusDiscover/javbus_image?url="
 
 MOVIE_BOX_PATTERN = re.compile(
     r'<a(?=[^>]*class="[^"]*\bmovie-box\b[^"]*")'
@@ -86,7 +88,7 @@ class JavbusDiscover(_PluginBase):
     plugin_name = "JAVBUS探索"
     plugin_desc = "让探索支持 JavBus 的数据浏览"
     plugin_icon = "https://www.javbus.com/favicon.ico"
-    plugin_version = "1.1.1"
+    plugin_version = "1.1.2"
     plugin_author = "TRAE"
     author_url = "https://trae.ai"
     plugin_config_prefix = "javbusdiscover_"
@@ -160,6 +162,13 @@ class JavbusDiscover(_PluginBase):
                 "methods": ["GET"],
                 "summary": "JavBus 探索数据源",
                 "description": "获取 JavBus 探索数据",
+            },
+            {
+                "path": "/javbus_image",
+                "endpoint": self.javbus_image,
+                "methods": ["GET"],
+                "summary": "JavBus 图片代理",
+                "description": "通过插件代理获取 JavBus 图片",
             }
         ]
 
@@ -329,16 +338,20 @@ class JavbusDiscover(_PluginBase):
     @staticmethod
     def _build_cached_image_url(image_url: str) -> str:
         """
-        构造系统图片缓存地址
+        构造插件图片代理地址
 
         :param image_url (str): 原始图片地址
 
-        :return str: 缓存后的图片地址
+        :return str: 代理后的图片地址
         """
         clean_url = str(image_url or "").strip()
         if not clean_url:
             return ""
-        return f"{IMAGE_PROXY_PREFIX}{quote(clean_url, safe='')}"
+        token = quote(str(settings.API_TOKEN or ""), safe="")
+        return (
+            f"{IMAGE_PROXY_PREFIX}{quote(clean_url, safe='')}"
+            f"&apikey={token}"
+        )
 
     def get_page(self) -> List[dict]:
         """
@@ -671,6 +684,39 @@ class JavbusDiscover(_PluginBase):
                 )
             raise ValueError(f"请求 JavBus 失败：{res.status_code}")
         return res.text
+
+    def javbus_image(self, url: str) -> Response:
+        """
+        通过插件代理获取 JavBus 图片
+
+        :param url (str): 图片地址
+
+        :return Response: 图片响应
+        """
+        image_url = str(url or "").strip()
+        if not image_url:
+            return Response(status_code=404, content=b"")
+
+        try:
+            res = RequestUtils(
+                headers=self._build_headers(),
+                proxies=self._build_proxies(),
+            ).get_res(image_url)
+            if res is None or not getattr(res, "ok", False):
+                logger.warning("JavBus 图片代理失败: `%s`", image_url)
+                return Response(status_code=404, content=b"")
+
+            content_type = str(
+                getattr(res, "headers", {}).get("Content-Type", "image/jpeg")
+            ).strip() or "image/jpeg"
+            return Response(
+                content=getattr(res, "content", b""),
+                media_type=content_type,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+        except Exception as err:
+            logger.warning("JavBus 图片代理异常: `%s`, %s", image_url, err)
+            return Response(status_code=404, content=b"")
 
     def _parse_detail(self, html: str) -> Optional[Dict[str, str]]:
         """

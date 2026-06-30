@@ -32,14 +32,15 @@
     "name": "JAVBUS探索",
     "description": "让探索支持 JavBus 的数据浏览",
     "labels": "探索,JAVBUS",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "icon": "https://www.javbus.com/favicon.ico",
     "author": "踏马奔腾",
     "level": 1,
     "history": {
       "v1.0.0": "发布，支持有码/无码列表页解析",
       "v1.1.0": "新增媒体识别与媒体搜索，配置页增加识别/代理/站点开关",
-      "v1.1.1": "封面改走系统图片缓存，并修正列表分页为 /page/{n}"
+      "v1.1.1": "封面改走系统图片缓存，并修正列表分页为 /page/{n}",
+      "v1.1.2": "图片改走插件代理接口，复用 Cookie 与代理配置获取封面"
     }
   },
   "HuanLeHuiju": {
