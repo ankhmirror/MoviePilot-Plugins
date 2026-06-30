@@ -24,6 +24,11 @@ HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/137.0.0.0 Safari/537.36"
     ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     "Referer": f"{BASE_URL}/",
 }
 HOME_CARD_PATTERN = re.compile(
@@ -68,7 +73,7 @@ class HanimeDiscover(_PluginBase):
     plugin_icon = (
         "https://raw.githubusercontent.com/ankhmirror/MoviePilot-Plugins/main/icons/hanime.svg"
     )
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     plugin_author = "TRAE"
     author_url = "https://trae.ai"
     plugin_config_prefix = "hanimediscover_"
@@ -76,6 +81,9 @@ class HanimeDiscover(_PluginBase):
     auth_level = 1
 
     _enabled = False
+    _cookie: Optional[str] = None
+    _use_proxy = True
+    _proxy: Optional[str] = None
 
     def init_plugin(self, config: dict = None) -> None:
         """
@@ -85,6 +93,9 @@ class HanimeDiscover(_PluginBase):
         """
         if config:
             self._enabled = config.get("enabled", False)
+            self._cookie = (config.get("cookie") or "").strip() or None
+            self._use_proxy = config.get("use_proxy", True)
+            self._proxy = (config.get("proxy") or "").strip() or None
 
         if "vdownload.hembed.com" not in settings.SECURITY_IMAGE_DOMAINS:
             settings.SECURITY_IMAGE_DOMAINS.append("vdownload.hembed.com")
@@ -149,10 +160,108 @@ class HanimeDiscover(_PluginBase):
                                 ],
                             }
                         ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": (
+                                                "Hanime 有时会触发安全验证（403）"
+                                                " 可尝试配置代理或从浏览器复制 Cookie（如 cf_clearance）"
+                                            ),
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "use_proxy",
+                                            "label": "使用全局代理",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 8},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "proxy",
+                                            "label": "自定义代理（可选）",
+                                            "placeholder": "http://127.0.0.1:7890",
+                                            "clearable": True,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "cookie",
+                                            "label": "Hanime Cookie（可选）",
+                                            "placeholder": "cf_clearance=...; __cf_bm=...",
+                                            "clearable": True,
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
                     }
                 ],
             }
-        ], {"enabled": False}
+        ], {"enabled": False, "use_proxy": True, "proxy": "", "cookie": ""}
+
+    def _build_proxies(self) -> Optional[Dict[str, str]]:
+        """
+        构造请求代理配置
+
+        :return Dict: 代理配置
+        """
+        if self._proxy:
+            return {"http": self._proxy, "https": self._proxy}
+        if not self._use_proxy:
+            return None
+        return settings.PROXY if getattr(settings, "PROXY", None) else None
+
+    def _build_headers(self) -> Dict[str, str]:
+        """
+        构造请求头
+
+        :return Dict: 请求头
+        """
+        headers = dict(HEADERS)
+        if self._cookie:
+            headers["Cookie"] = self._cookie
+        return headers
 
     def get_page(self) -> List[dict]:
         """
@@ -374,10 +483,17 @@ class HanimeDiscover(_PluginBase):
         if params:
             request_url = f"{SEARCH_URL}?{urlencode(params)}"
 
-        res = RequestUtils(headers=HEADERS).get_res(request_url)
+        res = RequestUtils(
+            headers=self._build_headers(),
+            proxies=self._build_proxies(),
+        ).get_res(request_url)
         if res is None:
             raise ConnectionError("无法连接 Hanime，请检查网络连接")
         if not res.ok:
+            if res.status_code == 403:
+                raise ValueError(
+                    "请求 Hanime 失败：403，可能触发安全验证，请尝试配置代理或 Cookie"
+                )
             raise ValueError(f"请求 Hanime 失败：{res.status_code}")
         return res.text
 
