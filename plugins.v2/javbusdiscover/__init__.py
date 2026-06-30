@@ -132,7 +132,7 @@ class JavbusDiscover(_PluginBase):
     plugin_name = "JAVBUS探索"
     plugin_desc = "让探索支持 JavBus 的数据浏览"
     plugin_icon = "https://www.javbus.com/favicon.ico"
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     plugin_author = "TRAE"
     author_url = "https://trae.ai"
     plugin_config_prefix = "javbusdiscover_"
@@ -684,9 +684,6 @@ class JavbusDiscover(_PluginBase):
         poster = str(getattr(item, "poster_path", "") or "").strip()
         media_id = str(getattr(item, "media_id", "") or "").strip()
         year = str(getattr(item, "year", "") or "").strip()
-        detail_url = str(getattr(item, "detail_url", "") or "").strip()
-        homepage = str(getattr(item, "homepage", "") or "").strip()
-        release_date = str(getattr(item, "release_date", "") or "").strip()
 
         if media_id:
             setattr(info, "mediaid_prefix", "javbus")
@@ -698,12 +695,6 @@ class JavbusDiscover(_PluginBase):
             setattr(info, "poster_path", poster)
         if year:
             setattr(info, "year", year)
-        if detail_url:
-            setattr(info, "detail_url", detail_url)
-        if homepage:
-            setattr(info, "homepage", homepage)
-        if release_date:
-            setattr(info, "release_date", release_date)
         setattr(info, "type", "电影")
         return info
 
@@ -900,27 +891,16 @@ class JavbusDiscover(_PluginBase):
             overview_parts.append(f"推荐 {len(related_items)} 条")
         return " | ".join(overview_parts)
 
-    def _build_detail_candidates(
-        self, code: Optional[str] = None, detail_url: Optional[str] = None
-    ) -> List[str]:
+    def _build_detail_candidates(self, code: Optional[str] = None) -> List[str]:
         """
         构造详情页候选地址
 
         :param code (str): 番号
-        :param detail_url (str): 详情地址
 
         :return List: 候选地址列表
         """
         candidates: List[str] = []
-        if detail_url:
-            clean_url = urljoin(BASE_URL, self._clean_attr_value(detail_url))
-            if clean_url:
-                candidates.append(clean_url)
-
         normalized = self._normalize_jav_code(code or "")
-        if not normalized and detail_url:
-            normalized = self._normalize_jav_code(detail_url)
-
         if normalized:
             ordered = [
                 f"{BASE_URL}/{normalized}",
@@ -932,35 +912,6 @@ class JavbusDiscover(_PluginBase):
                 if url not in candidates:
                     candidates.append(url)
         return candidates
-
-    def _extract_detail_url(self, meta: MetaBase = None, **kwargs) -> Optional[str]:
-        """
-        从参数中提取详情地址
-
-        :param meta (MetaBase): 媒体元数据
-        :param kwargs (dict): 额外参数
-
-        :return str: 详情地址
-        """
-        candidates = [
-            kwargs.get("detail_url"),
-            kwargs.get("homepage"),
-            kwargs.get("url"),
-        ]
-        if meta is not None:
-            candidates.extend(
-                [
-                    getattr(meta, "detail_url", None),
-                    getattr(meta, "homepage", None),
-                    getattr(meta, "url", None),
-                ]
-            )
-
-        for value in candidates:
-            text = str(value or "").strip()
-            if text and "javbus.com" in text:
-                return text
-        return None
 
     def _parse_detail(self, html: str, detail_url: str = "") -> Optional[Dict[str, Any]]:
         """
@@ -1059,7 +1010,6 @@ class JavbusDiscover(_PluginBase):
         studio = str(detail.get("studio") or "").strip()
         label = str(detail.get("label") or "").strip()
         overview = str(detail.get("overview") or "").strip()
-        detail_url = str(detail.get("detail_url") or "").strip()
         genres = detail.get("genres") or []
         actors = detail.get("actors") or []
         magnets = detail.get("magnets") or []
@@ -1087,9 +1037,6 @@ class JavbusDiscover(_PluginBase):
             setattr(info, "label", label)
         if overview:
             setattr(info, "overview", overview)
-        if detail_url:
-            setattr(info, "detail_url", detail_url)
-            setattr(info, "homepage", detail_url)
         if genres:
             setattr(info, "genres", genres)
         if actors:
@@ -1105,18 +1052,15 @@ class JavbusDiscover(_PluginBase):
         setattr(info, "type", "电影")
         return info
 
-    def _fetch_detail(
-        self, code: str = None, detail_url: str = None
-    ) -> Optional[MediaInfo]:
+    def _fetch_detail(self, code: str = None) -> Optional[MediaInfo]:
         """
         获取番号详情
 
         :param code (str): 番号
-        :param detail_url (str): 详情页地址
 
         :return MediaInfo: 媒体信息
         """
-        candidates = self._build_detail_candidates(code=code, detail_url=detail_url)
+        candidates = self._build_detail_candidates(code=code)
         if not candidates:
             return None
 
@@ -1185,8 +1129,7 @@ class JavbusDiscover(_PluginBase):
         query = str(meta.name).strip()
         code = self._normalize_jav_code(query)
         if code:
-            detail_url = self._extract_detail_url(meta=meta)
-            info = self._fetch_detail(code=code, detail_url=detail_url)
+            info = self._fetch_detail(code=code)
             return [info] if info else []
         return self._search_by_keyword(query)
 
@@ -1211,14 +1154,13 @@ class JavbusDiscover(_PluginBase):
         if not self._enabled:
             return None
 
-        detail_url = self._extract_detail_url(meta=meta)
         mediaid = getattr(meta, "mediaid", None) if meta else None
         code = self._normalize_jav_code(str(mediaid or ""))
         if not code and meta is not None:
             code = self._normalize_jav_code(str(getattr(meta, "name", "") or ""))
 
-        if code or detail_url:
-            info = self._fetch_detail(code=code, detail_url=detail_url)
+        if code:
+            info = self._fetch_detail(code=code)
             return [info] if info else []
 
         medias = self._search_medias(meta) or []
@@ -1226,8 +1168,7 @@ class JavbusDiscover(_PluginBase):
         seen_ids: Set[str] = set()
         for media in medias[:5]:
             item_code = self._normalize_jav_code(str(getattr(media, "media_id", "") or ""))
-            item_detail_url = str(getattr(media, "detail_url", "") or "").strip()
-            info = self._fetch_detail(code=item_code, detail_url=item_detail_url)
+            info = self._fetch_detail(code=item_code)
             if not info:
                 continue
             item_id = str(getattr(info, "media_id", "") or "").strip()
@@ -1260,7 +1201,6 @@ class JavbusDiscover(_PluginBase):
             return None
 
         meta = kwargs.get("meta")
-        detail_url = self._extract_detail_url(meta=meta, **kwargs)
         candidates: List[str] = []
         if javbusid:
             candidates.append(str(javbusid))
@@ -1277,9 +1217,7 @@ class JavbusDiscover(_PluginBase):
             code = self._normalize_jav_code(text)
             if not code:
                 continue
-            return self._fetch_detail(code=code, detail_url=detail_url)
-        if detail_url:
-            return self._fetch_detail(detail_url=detail_url)
+            return self._fetch_detail(code=code)
         return None
 
     async def _async_recognize_media_by_id(
