@@ -12,6 +12,18 @@
       "v1.1.0": "改为使用 Authorization 头并自动补全 Bearer 前缀"
     }
   },
+  "BgmTvDiscover": {
+    "name": "Bangumi标签探索",
+    "description": "让探索支持 bgm.tv 标签页的数据浏览",
+    "labels": "探索,Bangumi,bgm.tv",
+    "version": "1.0.0",
+    "icon": "https://bgm.tv/img/favicon.ico",
+    "author": "踏马奔腾",
+    "level": 1,
+    "history": {
+      "v1.0.0": "发布，支持 R18/里番/泡面番/后宫 标签探索"
+    }
+  },
   "HanimeDiscover": {
     "name": "Hanime探索",
     "description": "让探索支持 Hanime 的数据浏览",
